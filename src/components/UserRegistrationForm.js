@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect } from "react";
 
 export default function UserRegistrationForm() {
+  // Additional state: to let the user choose the capture mode.
+  // "camera" for live capture and "upload" for file upload.
+  const [captureMode, setCaptureMode] = useState("camera"); 
   const [step, setStep] = useState("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // We'll use the same state variables to store the image(s) regardless of capture method.
   const [photoFront, setPhotoFront] = useState(null);
   const [photoBack, setPhotoBack] = useState(null);
   const [capturingSide, setCapturingSide] = useState("front");
@@ -24,7 +28,7 @@ export default function UserRegistrationForm() {
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Function to extract ID details using your backend which connects with OpenAI.
+  // Function to extract ID details using your backend.
   async function extractIdDetails(imageData) {
     try {
       const response = await fetch("/api/extract-id", {
@@ -43,6 +47,7 @@ export default function UserRegistrationForm() {
     }
   }
 
+  // Flip animation function.
   const handleFlip = async (nextStep, direction = "right") => {
     if (isFlipping) return;
     setIsFlipping(true);
@@ -58,6 +63,7 @@ export default function UserRegistrationForm() {
     setIsFlipping(false);
   };
 
+  // Starts the user camera.
   const startCamera = (facing = "environment", targetRef = videoRef) => {
     setCameraStatus("pending");
     navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } } })
@@ -85,12 +91,19 @@ export default function UserRegistrationForm() {
     }
   };
 
+  // Submit form: start camera capture (if in camera mode) or proceed to next step.
   const handleFormSubmit = () => {
-    setCapturingSide("front");
-    startCamera();
-    handleFlip("camera", "right");
+    if (captureMode === "camera") {
+      setCapturingSide("front");
+      startCamera();
+      handleFlip("camera", "right");
+    } else {
+      // For file upload mode, simply flip to the upload step.
+      handleFlip("upload", "right");
+    }
   };
 
+  // Capture photo from camera.
   const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext("2d");
@@ -98,38 +111,68 @@ export default function UserRegistrationForm() {
       const imageData = canvasRef.current.toDataURL("image/png");
       if (capturingSide === "front") {
         setPhotoFront(imageData);
-        // After capturing front, flip to capture back
+        // Flip to capture back side.
         await handleFlip("camera", "right");
         setCapturingSide("back");
       } else {
         setPhotoBack(imageData);
         stopCamera();
-        // Proceed to registration confirmation
+        // Proceed to registration confirmation.
         handleFlip("completed", "right");
       }
     }
   };
 
-  const retakePhoto = async (side) => {
-    setCapturingSide(side);
-    startCamera();
-    await delay(200);
-    await handleFlip("camera", "left");
+  // Handle file upload instead of using the camera.
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Convert file to Base64 data URL.
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result;
+        if (capturingSide === "front") {
+          setPhotoFront(dataUrl);
+          // Switch to back side upload.
+          setCapturingSide("back");
+        } else {
+          setPhotoBack(dataUrl);
+          // Proceed when both sides are uploaded.
+          handleFlip("completed", "right");
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
+  // Retake photo by switching back to camera.
+  const retakePhoto = async (side) => {
+    setCapturingSide(side);
+    if (captureMode === "camera") {
+      startCamera();
+      await delay(200);
+      await handleFlip("camera", "left");
+    } else {
+      // For upload mode, simply clear the previous upload.
+      if (side === "front") setPhotoFront(null);
+      else setPhotoBack(null);
+    }
+  };
+
+  // Final submit: flip to face verification.
   const handleSubmit = async () => {
     stopCamera();
-    await delay(300); // wait for camera to stop cleanly
+    await delay(300); // Allow camera to stop cleanly.
     await handleFlip("verification", "right");
-    await delay(200); // wait for DOM to update
+    await delay(200); // Wait for DOM to update.
     startCamera("user", faceVideoRef);
   };
 
-  // When the registration is confirmed (step "completed") trigger the OCR extraction.
+  // When registration is complete, trigger OCR extraction if photoFront exists.
   useEffect(() => {
     if (step === "completed" && photoFront && !idDetails) {
       extractIdDetails(photoFront).then((details) => {
-        console.log("Extracted ID Details:", details); // Added console print
+        console.log("Extracted ID Details:", details);
         if (details) {
           setIdDetails(details);
         }
@@ -137,6 +180,7 @@ export default function UserRegistrationForm() {
     }
   }, [step, photoFront, idDetails]);
 
+  // Handle card hover rotation.
   useEffect(() => {
     const card = containerRef.current;
     const handleMouseMove = (e) => {
@@ -162,6 +206,7 @@ export default function UserRegistrationForm() {
     };
   }, [isFlipping]);
 
+  // Face detection interval (for face verification step).
   useEffect(() => {
     let interval;
     const tryStartDetection = () => {
@@ -196,6 +241,7 @@ export default function UserRegistrationForm() {
       className="p-6 max-w-md mx-auto bg-gradient-to-br from-gray-100 to-gray-300 rounded-3xl shadow-xl transition-transform duration-300 relative border border-gray-300 will-change-transform"
     >
       <style>{`button { border-radius: 10px !important; }`}</style>
+      
       {step === "form" && (
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold text-gray-800">Register</h2>
@@ -213,6 +259,25 @@ export default function UserRegistrationForm() {
             placeholder="Password"
             className="w-full p-2 border border-gray-300 rounded-lg"
           />
+          {/* Option to select capture mode */}
+          <div className="flex space-x-4 items-center">
+            <label>
+              <input
+                type="radio"
+                checked={captureMode === "camera"}
+                onChange={() => setCaptureMode("camera")}
+              />
+              Use Camera
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={captureMode === "upload"}
+                onChange={() => setCaptureMode("upload")}
+              />
+              Upload Image
+            </label>
+          </div>
           <div className="flex justify-center">
             <button
               onClick={handleFormSubmit}
@@ -224,7 +289,7 @@ export default function UserRegistrationForm() {
         </div>
       )}
 
-      {step === "camera" && (
+      {step === "camera" && captureMode === "camera" && (
         <div className="text-center space-y-4">
           <h2 className="text-lg font-medium text-gray-700">
             Capture {capturingSide === "front" ? "Front" : "Back"} of ID
@@ -253,6 +318,54 @@ export default function UserRegistrationForm() {
         </div>
       )}
 
+      {step === "upload" && captureMode === "upload" && (
+        <div className="text-center space-y-4">
+          <h2 className="text-lg font-medium text-gray-700">
+            Upload {capturingSide === "front" ? "Front" : "Back"} of ID
+          </h2>
+          <div className="w-full h-60 bg-gray-200 flex items-center justify-center rounded overflow-hidden">
+            {(capturingSide === "front" ? photoFront : photoBack) ? (
+              <img
+                src={capturingSide === "front" ? photoFront : photoBack}
+                alt={capturingSide === "front" ? "Front of ID" : "Back of ID"}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-gray-600 text-lg">No image uploaded</span>
+            )}
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="block mx-auto"
+          />
+          { (capturingSide === "front" ? photoFront : photoBack) && (
+              <button
+                onClick={() => {
+                  if (capturingSide === "front") {
+                    // After front upload, flip and set to capture back
+                    setCapturingSide("back");
+                  } else {
+                    // When back is uploaded, proceed to completed step.
+                    handleFlip("completed", "right");
+                  }
+                }}
+                className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md mt-4"
+              >
+                {capturingSide === "front" ? "Next (Upload Back)" : "Complete Upload"}
+              </button>
+            )
+          }
+          <button
+            onClick={() => retakePhoto(capturingSide)}
+            className="px-4 py-2 bg-gray-800 text-white hover:bg-gray-700 transition rounded-full shadow-md"
+          >
+            Retake {capturingSide === "front" ? "Front" : "Back"}
+          </button>
+        </div>
+      )}
+
       {step === "completed" && (
         <div className="text-center space-y-6">
           <h2 className="text-2xl font-semibold text-gray-800">
@@ -274,6 +387,7 @@ export default function UserRegistrationForm() {
                 onClick={() => setPreviewIndex(0)}
                 className="w-10 h-10 rounded-full backdrop-blur-md bg-white/20 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white/40 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
               >
+                {/* Left arrow SVG */}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
@@ -282,11 +396,7 @@ export default function UserRegistrationForm() {
                   stroke="currentColor"
                   className="w-5 h-5"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.75 19.5L8.25 12l7.5-7.5"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                 </svg>
               </button>
             </div>
@@ -295,6 +405,7 @@ export default function UserRegistrationForm() {
                 onClick={() => setPreviewIndex(1)}
                 className="w-10 h-10 rounded-full backdrop-blur-md bg-white/20 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white/40 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
               >
+                {/* Right arrow SVG */}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
@@ -303,11 +414,7 @@ export default function UserRegistrationForm() {
                   stroke="currentColor"
                   className="w-5 h-5"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                 </svg>
               </button>
             </div>
@@ -315,7 +422,7 @@ export default function UserRegistrationForm() {
           <div className="text-sm text-gray-500 font-medium pt-1">
             {previewIndex === 0 ? "Front of ID" : "Back of ID"}
           </div>
-          {/* Display extracted ID details in a smaller text size */}
+          {/* Display extracted ID details */}
           <div className="mt-4 text-xs text-gray-600">
             {idDetails ? (
               <div>
@@ -368,9 +475,7 @@ export default function UserRegistrationForm() {
             </div>
           </div>
           <p
-            className={`text-sm italic ${
-              faceDetected ? "text-green-600" : "text-gray-600"
-            }`}
+            className={`text-sm italic ${faceDetected ? "text-green-600" : "text-gray-600"}`}
           >
             {faceDetected
               ? "Face detected"
