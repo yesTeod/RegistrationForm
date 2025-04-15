@@ -28,7 +28,6 @@ import React, { useState, useRef, useEffect } from "react";
    async function extractIdDetails(imageData) {
      try {
        const response = await fetch("/api/extract-id.js", {
-       const response = await fetch("/api/extract-id", {
          method: "POST",
          headers: { "Content-Type": "application/json" },
          body: JSON.stringify({ image: imageData })
