@@ -13,7 +13,7 @@ export default function UserRegistrationForm() {
   const [faceDetected, setFaceDetected] = useState(false);
   const [mockMode, setMockMode] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [idDetails, setIdDetails] = useState(null); // new state for extracted details
+  const [idDetails, setIdDetails] = useState(null); // state for extracted details
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -22,7 +22,7 @@ export default function UserRegistrationForm() {
   const containerRef = useRef(null);
   const streamRef = useRef(null);
 
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   // Function to extract ID details using your backend which connects with OpenAI.
   async function extractIdDetails(imageData) {
@@ -30,7 +30,7 @@ export default function UserRegistrationForm() {
       const response = await fetch("/api/extract-id", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageData }),
+        body: JSON.stringify({ image: imageData })
       });
       if (!response.ok) {
         throw new Error("OCR request failed");
@@ -49,8 +49,7 @@ export default function UserRegistrationForm() {
     const card = containerRef.current;
     if (card) {
       card.style.transition = "transform 0.6s ease";
-      card.style.transform =
-        direction === "left" ? "rotateY(-90deg)" : "rotateY(90deg)";
+      card.style.transform = direction === "left" ? "rotateY(-90deg)" : "rotateY(90deg)";
     }
     await delay(600);
     setStep(nextStep);
@@ -61,8 +60,7 @@ export default function UserRegistrationForm() {
 
   const startCamera = (facing = "environment", targetRef = videoRef) => {
     setCameraStatus("pending");
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { exact: facing } } })
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } } })
       .then((stream) => {
         streamRef.current = stream;
         if (targetRef.current) {
@@ -82,7 +80,7 @@ export default function UserRegistrationForm() {
   const stopCamera = () => {
     const stream = streamRef.current;
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
   };
@@ -131,6 +129,7 @@ export default function UserRegistrationForm() {
   useEffect(() => {
     if (step === "completed" && photoFront && !idDetails) {
       extractIdDetails(photoFront).then((details) => {
+        console.log("Extracted ID Details:", details); // Added console print
         if (details) {
           setIdDetails(details);
         }
@@ -320,16 +319,9 @@ export default function UserRegistrationForm() {
           <div className="mt-4 text-xs text-gray-600">
             {idDetails ? (
               <div>
-                <p>
-                  <strong>Name:</strong> {idDetails.name}
-                </p>
-                <p>
-                  <strong>ID No:</strong> {idDetails.idNumber}
-                </p>
-                <p>
-                  <strong>Expiry:</strong> {idDetails.expiry}
-                </p>
-                {/* Add any additional details as needed */}
+                <p><strong>Name:</strong> {idDetails.name}</p>
+                <p><strong>ID No:</strong> {idDetails.idNumber}</p>
+                <p><strong>Expiry:</strong> {idDetails.expiry}</p>
               </div>
             ) : (
               <p>Scanning ID details...</p>
