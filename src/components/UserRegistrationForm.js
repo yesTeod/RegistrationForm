@@ -353,7 +353,7 @@ import React, { useState, useRef, useEffect } from "react";
                autoPlay
                playsInline
                muted
-               className="absolute top-0 left-0 w-full h-full object-cover rounded-lg"
+               className="absolute top-0 left-0 w-full h-full object-contain rounded-lg"
              />
              <canvas
                ref={faceCanvasRef}
@@ -361,8 +361,10 @@ import React, { useState, useRef, useEffect } from "react";
                height={240}
                className="absolute top-0 left-0 w-full h-full z-0 opacity-40"
              />
-             <div className="flex items-center justify-center pointer-events-none z-10">
-               <div className="w-40 h-52 rounded-full border-4 border-yellow-300"></div>
+             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+               <div className="w-40 h-52 rounded-full border-4 border-yellow-300 flex items-center justify-center">
+                 <div className="w-32 h-44 rounded-full border-2 border-dashed border-yellow-400 opacity-70"></div>
+               </div>
              </div>
            </div>
            <p
