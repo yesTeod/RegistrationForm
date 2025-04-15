@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js';
+import { Configuration, OpenAIApi } from 'openai';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -10,21 +11,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Image data is required." });
   }
 
-  // Remove the data header and convert the base64 string to a Buffer.
+  // Remove header and convert base64 string to Buffer.
   const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
   const imgBuffer = Buffer.from(base64Data, 'base64');
 
   try {
     console.log('Starting OCR processing with Tesseract.js using createWorker...');
-    
-    // Initialize a new worker
+
+    // Create and configure the worker with explicit asset paths.
     const worker = createWorker({
-      // Optionally, set logger to see debug messages
-      logger: (message) => console.log(message),
-      // If needed, explicitly set paths (adjust the paths based on your deployment)
-      // corePath: 'path/to/tesseract-core.wasm.js',
-      // workerPath: 'path/to/worker.min.js',
-      // langPath: 'path/to/lang-data',
+      logger: (m) => console.log(m),
+      workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+      corePath: 'https://unpkg.com/tesseract.js-core@2.1.1/tesseract-core.wasm.js',
     });
 
     const startOCR = Date.now();
@@ -44,7 +42,7 @@ OCR Text: ${ocrText}
 JSON:`;
     console.log('Constructed prompt:', prompt);
 
-    // Initialize the OpenAI API.
+    // Configure and initialize OpenAI.
     const configuration = new Configuration({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -76,7 +74,6 @@ JSON:`;
       });
     }
 
-    // Return the extracted ID details.
     res.status(200).json(idDetails);
   } catch (err) {
     console.error('Error processing image:', err);
