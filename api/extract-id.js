@@ -1,3 +1,7 @@
+// At the very top of your file, import createRequire to enable require.resolve:
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 import { createWorker } from 'tesseract.js';
 import { Configuration, OpenAIApi } from 'openai';
 
@@ -5,20 +9,20 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
-
+  
   const { image } = req.body;
   if (!image) {
     return res.status(400).json({ error: "Image data is required." });
   }
 
-  // Remove the data header and convert base64 string to Buffer.
+  // Remove the data header and convert the base64 string to a Buffer.
   const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
   const imgBuffer = Buffer.from(base64Data, 'base64');
 
   try {
     console.log('Starting OCR processing with Tesseract.js using createWorker...');
 
-    // Configure asset paths with require.resolve to obtain actual local file paths.
+    // Using require.resolve with our created require function to obtain absolute paths.
     const workerPath = require.resolve('tesseract.js/dist/worker.min.js');
     const corePath = require.resolve('tesseract.js-core/tesseract-core.wasm.js');
 
@@ -50,7 +54,7 @@ JSON:`;
       apiKey: process.env.OPENAI_API_KEY,
     });
     const openai = new OpenAIApi(configuration);
-
+    
     const startOpenAI = Date.now();
     const completion = await openai.createChatCompletion({
       model: "gpt-3.5-turbo",
