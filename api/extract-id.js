@@ -1,8 +1,8 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const Tesseract = require('tesseract.js');
-const { Configuration, OpenAIApi } = require("openai");
-const serverless = require('serverless-http');
+import express from "express";
+import bodyParser from "body-parser";
+import Tesseract from "tesseract.js";
+import { Configuration, OpenAIApi } from "openai";
+import serverless from "serverless-http";
 
 const app = express();
 app.use(bodyParser.json({ limit: '10mb' }));
