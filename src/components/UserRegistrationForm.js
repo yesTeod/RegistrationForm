@@ -27,7 +27,7 @@ export default function UserRegistrationForm() {
   // Function to extract ID details using your backend which connects with OpenAI.
   async function extractIdDetails(imageData) {
     try {
-      const response = await fetch("/api/extract-id", {
+      const response = await fetch("/api/extract-id.js", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: imageData })
