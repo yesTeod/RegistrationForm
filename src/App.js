@@ -1,5 +1,5 @@
 import React from "react";
-import UserRegistrationForm from "./components/UserRegistrationForm";
+import UserRegistrationForm from "./components/UserRegistrationForm.js";
 
 function App() {
   return (
