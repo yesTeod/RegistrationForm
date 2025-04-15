@@ -43,7 +43,7 @@ import React, { useState, useRef, useEffect } from "react";
      }
    }
  
-   const handleFlip = async (nextStep, direction = "right") => {
+   const handleFlip = async (nextStep, direction = "right", nextCapturingSide = null) => {
      if (isFlipping) return;
      setIsFlipping(true);
      const card = containerRef.current;
@@ -53,6 +53,9 @@ import React, { useState, useRef, useEffect } from "react";
      }
      await delay(600);
      setStep(nextStep);
+     if (nextCapturingSide !== null) {
+       setCapturingSide(nextCapturingSide);
+     }
      if (card) card.style.transform = "rotateY(0deg)";
      await delay(600);
      setIsFlipping(false);
@@ -98,13 +101,10 @@ import React, { useState, useRef, useEffect } from "react";
        const imageData = canvasRef.current.toDataURL("image/png");
        if (capturingSide === "front") {
          setPhotoFront(imageData);
-         // After capturing front, flip to capture back
-         await handleFlip("camera", "right");
-         setCapturingSide("back");
+         await handleFlip("camera", "right", "back");
        } else {
          setPhotoBack(imageData);
          stopCamera();
-         // Proceed to registration confirmation
          handleFlip("completed", "right");
        }
      }
@@ -259,58 +259,56 @@ import React, { useState, useRef, useEffect } from "react";
              Registration Confirmation
            </h2>
            <h3 className="text-lg text-gray-700">Email: {email}</h3>
-           <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
-             {(previewIndex === 0 ? photoFront : photoBack) ? (
-               <img
-                 src={previewIndex === 0 ? photoFront : photoBack}
-                 alt={previewIndex === 0 ? "Front of ID" : "Back of ID"}
-                 className="w-full h-full object-cover"
-               />
-             ) : (
-               <span className="text-gray-600 text-lg">Photo Missing</span>
-             )}
-             <div className="absolute top-1/2 left-0 transform -translate-y-1/2 z-10">
-               <button
-                 onClick={() => setPreviewIndex(0)}
-                 className="w-10 h-10 rounded-full backdrop-blur-md bg-white/20 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white/40 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
+           <div className="flex items-center justify-center">
+             <button
+               onClick={() => setPreviewIndex(0)}
+               className="w-10 h-10 mr-2 rounded-full bg-white/80 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
+             >
+               <svg
+                 xmlns="http://www.w3.org/2000/svg"
+                 fill="none"
+                 viewBox="0 0 24 24"
+                 strokeWidth={2}
+                 stroke="currentColor"
+                 className="w-5 h-5"
                >
-                 <svg
-                   xmlns="http://www.w3.org/2000/svg"
-                   fill="none"
-                   viewBox="0 0 24 24"
-                   strokeWidth={2}
-                   stroke="currentColor"
-                   className="w-5 h-5"
-                 >
-                   <path
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     d="M15.75 19.5L8.25 12l7.5-7.5"
-                   />
-                 </svg>
-               </button>
+                 <path
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   d="M15.75 19.5L8.25 12l7.5-7.5"
+                 />
+               </svg>
+             </button>
+             <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
+               {(previewIndex === 0 ? photoFront : photoBack) ? (
+                 <img
+                   src={previewIndex === 0 ? photoFront : photoBack}
+                   alt={previewIndex === 0 ? "Front of ID" : "Back of ID"}
+                   className="w-full h-full object-cover"
+                 />
+               ) : (
+                 <span className="text-gray-600 text-lg">Photo Missing</span>
+               )}
              </div>
-             <div className="absolute top-1/2 right-0 transform -translate-y-1/2 z-10">
-               <button
-                 onClick={() => setPreviewIndex(1)}
-                 className="w-10 h-10 rounded-full backdrop-blur-md bg-white/20 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white/40 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
+             <button
+               onClick={() => setPreviewIndex(1)}
+               className="w-10 h-10 ml-2 rounded-full bg-white/80 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
+             >
+               <svg
+                 xmlns="http://www.w3.org/2000/svg"
+                 fill="none"
+                 viewBox="0 0 24 24"
+                 strokeWidth={2}
+                 stroke="currentColor"
+                 className="w-5 h-5"
                >
-                 <svg
-                   xmlns="http://www.w3.org/2000/svg"
-                   fill="none"
-                   viewBox="0 0 24 24"
-                   strokeWidth={2}
-                   stroke="currentColor"
-                   className="w-5 h-5"
-                 >
-                   <path
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                   />
-                 </svg>
-               </button>
-             </div>
+                 <path
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                 />
+               </svg>
+             </button>
            </div>
            <div className="text-sm text-gray-500 font-medium pt-1">
              {previewIndex === 0 ? "Front of ID" : "Back of ID"}
@@ -363,7 +361,7 @@ import React, { useState, useRef, useEffect } from "react";
                height={240}
                className="absolute top-0 left-0 w-full h-full z-0 opacity-40"
              />
-             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+             <div className="flex items-center justify-center pointer-events-none z-10">
                <div className="w-40 h-52 rounded-full border-4 border-yellow-300"></div>
              </div>
            </div>
