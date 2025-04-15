@@ -1,6 +1,7 @@
 {
     "name": "react",
     "version": "1.0.0",
+    "type": "module",
     "description": "",
     "keywords": [],
     "main": "src/index.tsx",
