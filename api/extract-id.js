@@ -1,47 +1,73 @@
 // api/extract-id.js
-import { createWorker } from 'tesseract.js';
+import Tesseract from 'tesseract.js';
+import { Configuration, OpenAIApi } from 'openai';
 
 export default async function handler(req, res) {
+  // Only allow POST requests.
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-  const { image } = req.body;
-  if (!image) {
-    return res.status(400).json({ error: 'Image data is required.' });
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
   
+  const { image } = req.body;
+  if (!image) {
+    return res.status(400).json({ error: "Image data is required." });
+  }
+
+  // Remove the data header and convert to Buffer.
+  const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+  const imgBuffer = Buffer.from(base64Data, 'base64');
+
   try {
-    // Create an OCR worker
-    const worker = createWorker({
-      logger: (m) => console.log(m), // optional, logs progress info
-      // You can also specify paths if needed:
-      // corePath: '/path/to/tesseract-core.wasm.js',
-      // workerPath: '/path/to/tesseract-worker.js',
-      // langPath: './lang-data'  // if you want to preload traineddata files from disk
+    console.log('Starting OCR processing with Tesseract.js...');
+    const startOCR = Date.now();
+    const { data: { text: ocrText } } = await Tesseract.recognize(imgBuffer, 'eng');
+    console.log('Tesseract OCR completed in:', Date.now() - startOCR, 'ms');
+    console.log('OCR Output:', ocrText);
+
+    // Construct prompt for OpenAI.
+    const prompt = `Extract the ID details from the following text.
+
+OCR Text: ${ocrText}
+
+JSON:`;
+    console.log('Constructed prompt:', prompt);
+
+    // Configure and initialize OpenAI API.
+    const configuration = new Configuration({
+      apiKey: process.env.OPENAI_API_KEY,
     });
+    const openai = new OpenAIApi(configuration);
     
-    await worker.load();
-    await worker.loadLanguage('eng');
-    await worker.initialize('eng');
+    const startOpenAI = Date.now();
+    const completion = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are an assistant that extracts ID details from OCR text." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0,
+      max_tokens: 150,
+    });
+    console.log('OpenAI API call completed in:', Date.now() - startOpenAI, 'ms');
 
-    // Perform OCR; you can pass a Buffer or a base64 image string.
-    const { data: { text: ocrText } } = await worker.recognize(image);
+    const responseText = completion.data.choices[0].message.content;
+    console.log('OpenAI raw response:', responseText);
 
-    await worker.terminate();
+    let idDetails;
+    try {
+      idDetails = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error('Error parsing JSON from OpenAI:', jsonError);
+      return res.status(500).json({
+        error: "Failed to parse ID details from OpenAI response.",
+        rawResponse: responseText,
+      });
+    }
 
-    // Here, you can construct a prompt for OpenAI and send it if needed.
-    // For example, to extract more structured data, you might do:
-    // const prompt = `Extract the ID details from the following text.
-    //
-    // OCR Text: ${ocrText}
-    //
-    // JSON:`;
-    // And call your OpenAI API accordingly.
-    
-    // For now, return the OCR text:
-    res.status(200).json({ ocrText });
-  } catch (error) {
-    console.error('OCR processing failed:', error);
-    res.status(500).json({ error: 'OCR processing failed.' });
+    // Return the extracted ID details.
+    res.status(200).json(idDetails);
+  } catch (err) {
+    console.error('Error processing image:', err);
+    res.status(500).json({ error: "Failed to process image." });
   }
 }
