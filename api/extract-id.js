@@ -1,11 +1,9 @@
-// At the very top of your file, import createRequire to enable require.resolve:
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-
-import { createWorker } from 'tesseract.js';
+// api/extract-id.js
+import Tesseract from 'tesseract.js';
 import { Configuration, OpenAIApi } from 'openai';
 
 export default async function handler(req, res) {
+  // Only allow POST requests.
   if (req.method !== 'POST') {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
@@ -15,29 +13,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Image data is required." });
   }
 
-  // Remove the data header and convert the base64 string to a Buffer.
+  // Remove the data header and convert to Buffer.
   const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
   const imgBuffer = Buffer.from(base64Data, 'base64');
 
   try {
-    console.log('Starting OCR processing with Tesseract.js using createWorker...');
-
-    // Using require.resolve with our created require function to obtain absolute paths.
-    const workerPath = require.resolve('tesseract.js/dist/worker.min.js');
-    const corePath = require.resolve('tesseract.js-core/tesseract-core.wasm.js');
-
-    const worker = createWorker({
-      logger: (message) => console.log(message),
-      workerPath,
-      corePath,
-    });
-
+    console.log('Starting OCR processing with Tesseract.js...');
     const startOCR = Date.now();
-    await worker.load();
-    await worker.loadLanguage('eng');
-    await worker.initialize('eng');
-    const { data: { text: ocrText } } = await worker.recognize(imgBuffer);
-    await worker.terminate();
+    const { data: { text: ocrText } } = await Tesseract.recognize(imgBuffer, 'eng');
     console.log('Tesseract OCR completed in:', Date.now() - startOCR, 'ms');
     console.log('OCR Output:', ocrText);
 
@@ -81,6 +64,7 @@ JSON:`;
       });
     }
 
+    // Return the extracted ID details.
     res.status(200).json(idDetails);
   } catch (err) {
     console.error('Error processing image:', err);
