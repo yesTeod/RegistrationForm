@@ -1,12 +1,73 @@
-const express = require('express');
-const serverless = require('serverless-http');
+// api/extract-id.js
+import Tesseract from 'tesseract.js';
+import { Configuration, OpenAIApi } from 'openai';
 
-const app = express();
-app.use(express.json({ limit: '10mb' }));
+export default async function handler(req, res) {
+  // Only allow POST requests.
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
+  
+  const { image } = req.body;
+  if (!image) {
+    return res.status(400).json({ error: "Image data is required." });
+  }
 
-app.post('/', (req, res) => {
-  console.log("Received request:", req.method, req.url);
-  res.status(200).json({ name: "Test", idNumber: "12345", expiry: "01/01/2099" });
-});
+  // Remove the data header and convert to Buffer.
+  const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+  const imgBuffer = Buffer.from(base64Data, 'base64');
 
-module.exports = serverless(app);
+  try {
+    console.log('Starting OCR processing with Tesseract.js...');
+    const startOCR = Date.now();
+    const { data: { text: ocrText } } = await Tesseract.recognize(imgBuffer, 'eng');
+    console.log('Tesseract OCR completed in:', Date.now() - startOCR, 'ms');
+    console.log('OCR Output:', ocrText);
+
+    // Construct prompt for OpenAI.
+    const prompt = `Extract the ID details from the following text.
+
+OCR Text: ${ocrText}
+
+JSON:`;
+    console.log('Constructed prompt:', prompt);
+
+    // Configure and initialize OpenAI API.
+    const configuration = new Configuration({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+    const openai = new OpenAIApi(configuration);
+    
+    const startOpenAI = Date.now();
+    const completion = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are an assistant that extracts ID details from OCR text." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0,
+      max_tokens: 150,
+    });
+    console.log('OpenAI API call completed in:', Date.now() - startOpenAI, 'ms');
+
+    const responseText = completion.data.choices[0].message.content;
+    console.log('OpenAI raw response:', responseText);
+
+    let idDetails;
+    try {
+      idDetails = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error('Error parsing JSON from OpenAI:', jsonError);
+      return res.status(500).json({
+        error: "Failed to parse ID details from OpenAI response.",
+        rawResponse: responseText,
+      });
+    }
+
+    // Return the extracted ID details.
+    res.status(200).json(idDetails);
+  } catch (err) {
+    console.error('Error processing image:', err);
+    res.status(500).json({ error: "Failed to process image." });
+  }
+}
