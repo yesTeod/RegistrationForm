@@ -1,9 +1,6 @@
-// api/extract-id.js
-import Tesseract from 'tesseract.js';
-import { Configuration, OpenAIApi } from 'openai';
+import { createWorker } from 'tesseract.js';
 
 export default async function handler(req, res) {
-  // Only allow POST requests.
   if (req.method !== 'POST') {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
@@ -13,14 +10,29 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Image data is required." });
   }
 
-  // Remove the data header and convert to Buffer.
+  // Remove the data header and convert the base64 string to a Buffer.
   const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
   const imgBuffer = Buffer.from(base64Data, 'base64');
 
   try {
-    console.log('Starting OCR processing with Tesseract.js...');
+    console.log('Starting OCR processing with Tesseract.js using createWorker...');
+    
+    // Initialize a new worker
+    const worker = createWorker({
+      // Optionally, set logger to see debug messages
+      logger: (message) => console.log(message),
+      // If needed, explicitly set paths (adjust the paths based on your deployment)
+      // corePath: 'path/to/tesseract-core.wasm.js',
+      // workerPath: 'path/to/worker.min.js',
+      // langPath: 'path/to/lang-data',
+    });
+
     const startOCR = Date.now();
-    const { data: { text: ocrText } } = await Tesseract.recognize(imgBuffer, 'eng');
+    await worker.load();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    const { data: { text: ocrText } } = await worker.recognize(imgBuffer);
+    await worker.terminate();
     console.log('Tesseract OCR completed in:', Date.now() - startOCR, 'ms');
     console.log('OCR Output:', ocrText);
 
@@ -32,7 +44,7 @@ OCR Text: ${ocrText}
 JSON:`;
     console.log('Constructed prompt:', prompt);
 
-    // Configure and initialize OpenAI API.
+    // Initialize the OpenAI API.
     const configuration = new Configuration({
       apiKey: process.env.OPENAI_API_KEY,
     });
