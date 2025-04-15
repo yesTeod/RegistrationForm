@@ -66,4 +66,4 @@ JSON:`;
   }
 });
 
-module.exports = serverless(app);
+export default serverless(app);
