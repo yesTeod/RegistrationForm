@@ -114,83 +114,53 @@ export default async function handler(request) {
   }
 }
 
+// Helper function to extract the "Name" and "Father's name" from OCR text based on label matching
 function extractNameFromText(text) {
-  // Split text into lines and clean them up
+  // Split the OCR text into an array of non-empty trimmed lines
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   
-  // Common header/footer text to ignore
-  const commonHeaders = [
-    'european union',
-    'identity card',
-    'identification',
-    'republic',
-    'national',
-    'card',
-    'valid',
-    'signature',
-    'nationality',
-    'birth',
-    'issued',
-    'expiry',
-    'sex',
-    'government',
-    'authority'
-  ];
-  
-  // First, try to find a pattern using s/o or d/o (son/daughter of)
-  const fatherPattern = /([A-Za-z\s]{2,})\s+(?:s\/o|d\/o|son\s+of|daughter\s+of)\s+([A-Za-z\s]{2,})/i;
-  const fullText = lines.join(' ');
-  const fatherMatch = fullText.match(fatherPattern);
-  if (fatherMatch) {
-    const personName = fatherMatch[1].trim();
-    const fatherName = fatherMatch[2].trim();
-    // Ensure that neither name is one of the common headers
-    if (!commonHeaders.some(header => 
-          personName.toLowerCase().includes(header) || 
-          fatherName.toLowerCase().includes(header))) {
-      return { name: personName, fatherName: fatherName };
+  // Initialize our result with default values
+  const data = {
+    name: "Not found",
+    fatherName: "Not found"
+  };
+
+  // --- First, check for English labels ---
+  // The idea is to look for the line that exactly equals the label (case insensitive),
+  // then treat the immediately following line as the field value.
+  for (let i = 0; i < lines.length; i++) {
+    const lowerLine = lines[i].toLowerCase();
+    if (lowerLine === "name" && i + 1 < lines.length) {
+      data.name = lines[i + 1];
+    }
+    if (lowerLine === "father's name" && i + 1 < lines.length) {
+      data.fatherName = lines[i + 1];
     }
   }
-  
-  // Fallback: look through the first few lines to find candidate names.
-  let names = [];
-  
-  for (let i = 0; i < Math.min(7, lines.length); i++) {
-    let line = lines[i];
-    const lowerLine = line.toLowerCase();
-    
-    // Skip lines that contain common header words, are just numbers, are too short, or have date-like patterns
-    if (commonHeaders.some(header => lowerLine.includes(header)) ||
-        /^\d+$/.test(line) ||
-        line.length < 3 ||
-        /[0-9\/]/.test(line)) {
-      continue;
-    }
-    
-    // If the line is all uppercase, convert it to proper case for evaluation.
-    let candidate = line;
-    if (/^[A-Z\s]+$/.test(line)) {
-      candidate = line.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-    }
-    
-    // Check if this candidate looks like a valid name.
-    // The regex below checks for at least two words (e.g., first name and last name) where each starts with a capital letter.
-    if (/^([A-Z][a-z]+)(\s+[A-Z][a-z]+)+$/.test(candidate)) {
-      names.push(candidate);
-      // Return as soon as we collect two names (person and father's names)
-      if (names.length === 2) {
-        return { name: names[0], fatherName: names[1] };
+
+  // --- If the English labels weren't found, try to use Bulgarian labels ---
+  // For the given name, Bulgarian may use "Име" (or even OCR mis-read as "ViMe")
+  // For the father's name, Bulgarian may have "Презиме"
+  if (data.name === "Not found") {
+    for (let i = 0; i < lines.length; i++) {
+      const lowerLine = lines[i].toLowerCase();
+      if ((lowerLine === "име" || lowerLine === "vime") && i + 1 < lines.length) {
+        data.name = lines[i + 1];
       }
     }
   }
   
-  // If only one valid name was found, return it and default father's name to "Not found"
-  if (names.length === 1) {
-    return { name: names[0], fatherName: "Not found" };
+  if (data.fatherName === "Not found") {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase() === "презиме" && i + 1 < lines.length) {
+        data.fatherName = lines[i + 1];
+      }
+    }
   }
   
-  return { name: "Not found", fatherName: "Not found" };
+  return data;
 }
+
 
 function extractIdNumberFromText(text) {
   // Look for document number patterns
