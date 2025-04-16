@@ -111,19 +111,45 @@ export default async function handler(request) {
 
 // Helper functions to extract ID details from OCR text
 function extractNameFromText(text) {
-  // Look for common name patterns
-  // This is a simplified example - adjust based on your ID card format
-  const nameRegex = /name[:\s]+([A-Za-z\s]+)/i;
-  const match = text.match(nameRegex);
-  if (match && match[1]) {
-    return match[1].trim();
+  // Split text into lines and clean them
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  
+  // First try to find name with s/o or d/o patterns (son of/daughter of)
+  const fatherPattern = /([A-Za-z\s]+)\s+(?:s\/o|d\/o|S\/O|D\/O|son\s+of|daughter\s+of)\s+([A-Za-z\s]+)/i;
+  const fullText = lines.join(' ');
+  const fatherMatch = fullText.match(fatherPattern);
+  if (fatherMatch) {
+    const personName = fatherMatch[1].trim();
+    const fatherName = fatherMatch[2].trim();
+    return `${personName} s/o ${fatherName}`;
+  }
+
+  // If no s/o pattern found, look for two consecutive name-like lines
+  let nameFound = false;
+  let names = [];
+  
+  for (let i = 0; i < Math.min(7, lines.length); i++) {
+    const line = lines[i].toLowerCase();
+    // Skip common header lines
+    if (line.includes('card') || line.includes('republic') || 
+        line.includes('identity') || line.includes('government') ||
+        /^\d+$/.test(line) || // Skip lines with only numbers
+        line.length < 3) { // Skip very short lines
+      continue;
+    }
+    
+    // Check if line contains a valid name (letters and spaces, reasonable length)
+    if (/^[A-Za-z\s]{3,}$/i.test(lines[i]) && !/\d/.test(lines[i])) {
+      names.push(lines[i].trim());
+      if (names.length === 2) {
+        return `${names[0]} s/o ${names[1]}`;
+      }
+    }
   }
   
-  // If specific pattern fails, try to find the most likely name
-  // This assumes the name is usually at the beginning of the ID
-  const lines = text.split('\n').filter(line => line.trim());
-  if (lines.length > 0 && !lines[0].includes('ID') && !lines[0].includes('CARD')) {
-    return lines[0].trim();
+  // If we found at least one name
+  if (names.length === 1) {
+    return names[0];
   }
   
   return "Not found";
