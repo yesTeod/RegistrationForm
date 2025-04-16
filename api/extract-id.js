@@ -1,119 +1,113 @@
-import express from "express";
-import bodyParser from "body-parser";
-import Tesseract from "tesseract.js";
-import { Configuration, OpenAIApi } from "openai";
-import serverless from "serverless-http";
+import { OpenAI } from 'openai';
 
-const app = express();
-app.use(bodyParser.json({ limit: '10mb' }));
+// This is a Vercel Edge Function - better for long-running processes
+export const config = {
+  runtime: 'edge',
+  regions: ['iad1'], // US East (N. Virginia)
+};
 
-// Configure OpenAI using your secure API key from environment variables.
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
-
-// Mock fallback data for testing and when OCR fails
 const FALLBACK_DATA = {
   name: "John Doe",
   idNumber: "ID12345678",
   expiry: "01/01/2030"
 };
 
-// Use a root route so that the file maps directly to /api/extract-id
-app.post('/', async (req, res) => {
-  const { image } = req.body;
-  if (!image) {
-    return res.json(FALLBACK_DATA);
+export default async function handler(request) {
+  // Only accept POST requests
+  if (request.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
-    // Remove the base64 header if present and convert to a buffer.
+    // Parse the request body
+    const data = await request.json();
+    const { image } = data;
+
+    if (!image) {
+      return new Response(
+        JSON.stringify(FALLBACK_DATA),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Convert base64 string to raw base64 data by removing the header
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
-    const imgBuffer = Buffer.from(base64Data, 'base64');
-
-    // For development/testing, you can bypass the actual OCR
-    // Uncomment this to test without running OCR or OpenAI
-    /*
-    return res.json({
-      name: "Test User",
-      idNumber: "TEST123456",
-      expiry: "01/01/2025"
+    
+    // Use OpenAI's Vision API directly for ID extraction
+    // This skips the traditional OCR step entirely
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
-    */
-
-    // Set a timeout for the OCR operation (15 seconds)
-    const tesseractPromise = Tesseract.recognize(imgBuffer, 'eng', {
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          console.log(`OCR progress: ${(m.progress * 100).toFixed(1)}%`);
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+        {
+          role: "system",
+          content: "You are an ID card information extractor. Extract the following details from the ID card image: full name, ID number, and expiry date. Format your response as a JSON object with the keys: name, idNumber, and expiry. If any field is not visible or unclear, use 'Not found' as the value."
+        },
+        {
+          role: "user", 
+          content: [
+            { type: "text", text: "Extract the ID details from this image." },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+          ]
         }
-      },
-      // Try to improve OCR for ID cards
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/.', 
+      ],
+      max_tokens: 300,
+      temperature: 0.1,
     });
     
-    // Use Promise.race to limit Tesseract execution time
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('OCR timed out')), 15000)
-    );
-    
-    let ocrText;
     try {
-      const { data: { text } } = await Promise.race([
-        tesseractPromise,
-        timeoutPromise
-      ]);
-      ocrText = text;
-      console.log("OCR Output:", ocrText);
-    } catch (ocrError) {
-      console.error("OCR failed or timed out:", ocrError);
-      return res.json(FALLBACK_DATA);
-    }
-    
-    // If OCR output is too short or empty, return fallback data
-    if (!ocrText || ocrText.trim().length < 10) {
-      console.log("OCR output too short, using fallback data");
-      return res.json(FALLBACK_DATA);
-    }
-
-    // Construct prompt for OpenAI with shorter context
-    const prompt = `Extract the ID details from the following text: ${ocrText.substring(0, 800)}`;
-    
-    try {
-      const completion = await openai.createChatCompletion({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: "Extract ID details in JSON format with fields: name, idNumber, expiry. If you cannot extract some fields, use placeholder values." },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0,
-        max_tokens: 150,
-      });
-  
-      const responseText = completion.data.choices[0].message.content;
-      let idDetails;
+      // Extract JSON from the response
+      const content = response.choices[0].message.content;
+      console.log("OpenAI Vision API response:", content);
+      
+      // Try to parse the response as JSON
+      let jsonResponse;
       try {
-        idDetails = JSON.parse(responseText);
-        // Ensure all required fields exist
-        if (!idDetails.name) idDetails.name = "Name not found";
-        if (!idDetails.idNumber) idDetails.idNumber = "ID not found";
-        if (!idDetails.expiry) idDetails.expiry = "Expiry not found";
-      } catch (jsonError) {
-        console.error("Failed to parse OpenAI response:", jsonError);
-        idDetails = FALLBACK_DATA;
+        // First attempt: Try to parse the entire content as JSON
+        jsonResponse = JSON.parse(content);
+      } catch (error) {
+        // Second attempt: Try to extract JSON from text if it contains JSON
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            jsonResponse = JSON.parse(jsonMatch[0]);
+          } catch (innerError) {
+            throw new Error("Failed to parse JSON from content");
+          }
+        } else {
+          throw new Error("No JSON object found in content");
+        }
       }
-  
-      res.json(idDetails);
-    } catch (aiError) {
-      console.error("OpenAI API error:", aiError);
-      res.json(FALLBACK_DATA);
+      
+      // Ensure all required fields exist
+      if (!jsonResponse.name) jsonResponse.name = "Name not found";
+      if (!jsonResponse.idNumber) jsonResponse.idNumber = "ID not found";
+      if (!jsonResponse.expiry) jsonResponse.expiry = "Expiry not found";
+      
+      return new Response(
+        JSON.stringify(jsonResponse),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error("Error parsing OpenAI response:", error, response.choices[0].message.content);
+      
+      // Return fallback if parsing fails
+      return new Response(
+        JSON.stringify(FALLBACK_DATA),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
     }
-  } catch (err) {
-    console.error("Error processing image:", err);
-    // Return fallback data even on error
-    res.json(FALLBACK_DATA);
+  } catch (error) {
+    console.error('Error processing request:', error);
+    return new Response(
+      JSON.stringify(FALLBACK_DATA),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-});
-
-export default serverless(app);
+}
