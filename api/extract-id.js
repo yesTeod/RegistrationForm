@@ -33,7 +33,7 @@ export default async function handler(request) {
     
     // Call OCR.space API
     const formData = {
-      base64Image: `data:image/jpeg;base64,${base64Data}`,  // Ensure proper format with data URI
+      base64Image: base64Data,  // Send raw base64 data without the data URI prefix
       language: 'eng',
       isOverlayRequired: false,
       scale: true,
