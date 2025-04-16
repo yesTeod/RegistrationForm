@@ -22,13 +22,98 @@ export default function UserRegistrationForm() {
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Utility delay function.
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // --- New functions for anti-spoofing measures ---
+
+  // Capture multiple frames from the video feed and analyze them.
+  const captureIDMultiFrames = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const frames = [];
+    // Create an off-screen canvas to capture frames.
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 320;
+    canvas.height = video.videoHeight || 240;
+    const context = canvas.getContext('2d');
+
+    // Capture 5 frames, spaced about 400ms apart (total ~2 seconds).
+    for (let i = 0; i < 5; i++) {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      frames.push(imageData);
+      await delay(400);
+    }
+
+    // Run our anti-spoofing tests:
+    const movementVerified = analyzeMotion(frames);
+    const glareVerified = analyzeGlare(frames[frames.length - 1]);
+
+    console.log("Movement verified:", movementVerified, "Glare verified:", glareVerified);
+    if (movementVerified && glareVerified) {
+      // If the checks pass, capture the final high-quality photo.
+      capturePhoto();
+    } else {
+      alert("ID verification failed. Please try again while slightly moving your ID or adjusting the lighting.");
+    }
+  };
+
+  // Analyze motion between captured frames by comparing consecutive frame differences.
+  const analyzeMotion = (frames) => {
+    let totalDiff = 0;
+    let count = 0;
+    for (let i = 1; i < frames.length; i++) {
+      totalDiff += measureDifference(frames[i - 1].data, frames[i].data);
+      count++;
+    }
+    const avgDiff = totalDiff / count;
+    console.log("Average frame difference:", avgDiff);
+    // You may need to fine-tune this threshold value based on testing.
+    const MOVEMENT_THRESHOLD = 5; 
+    return avgDiff > MOVEMENT_THRESHOLD;
+  };
+
+  // Compute an average pixel difference between two frames.
+  const measureDifference = (data1, data2) => {
+    let diff = 0;
+    const length = data1.length;
+    for (let i = 0; i < length; i += 4) {
+      const rdiff = Math.abs(data1[i] - data2[i]);
+      const gdiff = Math.abs(data1[i + 1] - data2[i + 1]);
+      const bdiff = Math.abs(data1[i + 2] - data2[i + 2]);
+      // Average the differences per pixel (ignoring alpha channel).
+      diff += (rdiff + gdiff + bdiff) / 3;
+    }
+    // Return the average difference per pixel.
+    return diff / (length / 4);
+  };
+
+  // Analyze the final frame for reflective glare.
+  // We count pixels that are very bright and check whether they fall within an expected ratio.
+  const analyzeGlare = (imageData) => {
+    const data = imageData.data;
+    let brightCount = 0;
+    const totalPixels = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      // Calculate perceived brightness using a common formula.
+      const brightness = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (brightness > 240) brightCount++;
+    }
+    const ratio = brightCount / totalPixels;
+    console.log("Glare ratio:", ratio);
+    // Thresholds (adjustable):
+    // A very low ratio might indicate no reflective artifacts, and an excessively high ratio might be due to overexposure.
+    return ratio > 0.001 && ratio < 0.1;
+  };
+
+  // --- Existing Functions ---
 
   // Handle file upload without compression.
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     try {
       setIsUploading(true);
       const reader = new FileReader();
@@ -50,8 +135,7 @@ export default function UserRegistrationForm() {
     const card = containerRef.current;
     if (card) {
       card.style.transition = "transform 0.6s ease";
-      card.style.transform =
-        direction === "left" ? "rotateY(-90deg)" : "rotateY(90deg)";
+      card.style.transform = direction === "left" ? "rotateY(-90deg)" : "rotateY(90deg)";
     }
     await delay(600);
     setStep(nextStep);
@@ -62,7 +146,6 @@ export default function UserRegistrationForm() {
 
   const startCamera = (facing = "environment", targetRef = videoRef) => {
     setCameraStatus("pending");
-    // Request a higher resolution stream for a clear, crisp feed.
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -90,7 +173,7 @@ export default function UserRegistrationForm() {
   const stopCamera = () => {
     const stream = streamRef.current;
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
   };
@@ -100,11 +183,12 @@ export default function UserRegistrationForm() {
     handleFlip("camera", "right");
   };
 
+  // Original capturePhoto now becomes the final high-quality capture.
   const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      // Set canvas dimensions to match the video feed for a clear capture.
+      // Set canvas dimensions to the video feed’s dimensions.
       canvas.width = video.videoWidth || 320;
       canvas.height = video.videoHeight || 240;
       const context = canvas.getContext("2d");
@@ -130,71 +214,36 @@ export default function UserRegistrationForm() {
     startCamera("user", faceVideoRef);
   };
 
-// This helper function compresses the image dataURL for OCR.
-function compressImageForOCR(dataURL, quality = 0.9) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = dataURL;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      // Optionally, you can also reduce dimensions here if needed.
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      // Convert image to JPEG with the specified quality.
-      const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
-      // Estimate file size in KB (base64 encoding approximates to 3/4 the length in bytes)
-      const fileSizeKb = Math.round((compressedDataURL.length * (3 / 4)) / 1024);
-      if (fileSizeKb > 1024 && quality > 0.1) {
-        // Reduce quality further if file size is still too high.
-        compressImageForOCR(dataURL, quality - 0.1).then(resolve);
-      } else {
-        resolve(compressedDataURL);
-      }
-    };
-  });
-}
-
-
+  // Function to extract ID details using OpenAI Vision API.
   async function extractIdDetails(imageData) {
-  try {
-    setIsExtracting(true);
-
-    // Estimate file size and compress if necessary.
-    const fileSizeKb = Math.round((imageData.length * (3 / 4)) / 1024);
-    let processedImage = imageData;
-    if (fileSizeKb > 1024) {
-      processedImage = await compressImageForOCR(imageData);
+    try {
+      setIsExtracting(true);
+      const response = await fetch("/api/extract-id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageData }),
+      });
+      if (!response.ok) {
+        throw new Error("OCR request failed");
+      }
+      const data = await response.json();
+      if (data.error) {
+        console.warn("API returned an error:", data.error);
+      }
+      return data;
+    } catch (error) {
+      console.error("Error extracting ID details:", error);
+      return {
+        name: "Not found",
+        idNumber: "Not found",
+        expiry: "Not found",
+      };
+    } finally {
+      setIsExtracting(false);
     }
-
-    const response = await fetch("/api/extract-id", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: processedImage }),
-    });
-    if (!response.ok) {
-      throw new Error("OCR request failed");
-    }
-    const data = await response.json();
-    if (data.error) {
-      console.warn("API returned an error:", data.error);
-    }
-    return data;
-  } catch (error) {
-    console.error("Error extracting ID details:", error);
-    return {
-      name: "Not found",
-      idNumber: "Not found",
-      expiry: "Not found",
-    };
-  } finally {
-    setIsExtracting(false);
   }
-}
 
-
-  // Trigger OCR extraction when registration is completed.
+  // When the registration is confirmed (step "completed"), trigger the OCR extraction.
   useEffect(() => {
     if (step === "completed" && photoFront && !idDetails && !isExtracting) {
       extractIdDetails(photoFront).then((details) => {
@@ -295,9 +344,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
 
       {step === "camera" && (
         <div className="text-center space-y-4">
-          <h2 className="text-lg font-medium text-gray-700">
-            Capture ID Front
-          </h2>
+          <h2 className="text-lg font-medium text-gray-700">Capture ID Front</h2>
           <div className="w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
             <video
               ref={videoRef}
@@ -306,21 +353,16 @@ function compressImageForOCR(dataURL, quality = 0.9) {
               muted
               className="w-full h-full object-cover rounded"
             />
-            <canvas
-              ref={canvasRef}
-              width={320}
-              height={240}
-              className="hidden"
-            />
+            <canvas ref={canvasRef} className="hidden" />
           </div>
           <div className="flex flex-col md:flex-row justify-center gap-3 mt-4">
+            {/* Instead of a simple capture, we trigger our multi-frame capture analysis */}
             <button
-              onClick={capturePhoto}
+              onClick={captureIDMultiFrames}
               className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md"
             >
-              Capture Front
+              Capture ID with Verification
             </button>
-
             <input
               type="file"
               accept="image/*"
@@ -341,24 +383,16 @@ function compressImageForOCR(dataURL, quality = 0.9) {
 
       {step === "completed" && (
         <div className="text-center space-y-6">
-          <h2 className="text-2xl font-semibold text-gray-800">
-            Registration Confirmation
-          </h2>
+          <h2 className="text-2xl font-semibold text-gray-800">Registration Confirmation</h2>
           <h3 className="text-lg text-gray-700">Email: {email}</h3>
           <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
             {photoFront ? (
-              <img
-                src={photoFront}
-                alt="Front of ID"
-                className="w-full h-full object-cover"
-              />
+              <img src={photoFront} alt="Front of ID" className="w-full h-full object-cover" />
             ) : (
               <span className="text-gray-600 text-lg">Photo Missing</span>
             )}
           </div>
-          <div className="text-sm text-gray-500 font-medium pt-1">
-            Front of ID
-          </div>
+          <div className="text-sm text-gray-500 font-medium pt-1">Front of ID</div>
           <div className="mt-4 text-xs text-gray-600">
             {idDetails ? (
               <div>
@@ -379,9 +413,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
               </div>
             ) : (
               <button
-                onClick={() =>
-                  extractIdDetails(photoFront).then(setIdDetails)
-                }
+                onClick={() => extractIdDetails(photoFront).then(setIdDetails)}
                 className="px-4 py-1 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full text-xs"
               >
                 Scan ID Details
@@ -390,7 +422,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
           </div>
           <div className="flex justify-center gap-4 pt-2">
             <button
-              onClick={() => retakePhoto()}
+              onClick={retakePhoto}
               className="px-5 py-2 bg-gray-800 text-white hover:bg-gray-700 transition shadow-md"
             >
               Retake Photo
@@ -407,9 +439,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
 
       {step === "verification" && (
         <div className="text-center space-y-4">
-          <h2 className="text-xl font-semibold text-gray-800">
-            Face Verification
-          </h2>
+          <h2 className="text-xl font-semibold text-gray-800">Face Verification</h2>
           <div className="w-[320px] h-[240px] mx-auto rounded-lg relative overflow-hidden">
             <video
               ref={faceVideoRef}
@@ -430,11 +460,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
               </div>
             </div>
           </div>
-          <p
-            className={`text-sm italic ${
-              faceDetected ? "text-green-600" : "text-gray-600"
-            }`}
-          >
+          <p className={`text-sm italic ${faceDetected ? "text-green-600" : "text-gray-600"}`}>
             {faceDetected
               ? "Face detected"
               : "Please align your face within the oval for verification."}
