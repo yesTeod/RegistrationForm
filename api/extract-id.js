@@ -1,5 +1,5 @@
-// Using direct import for edge function compatibility
-import OpenAI from 'openai';
+// Using node-fetch for API requests
+import fetch from 'node-fetch';
 
 // This is a Vercel Edge Function - better for long-running processes
 export const config = {
@@ -31,70 +31,45 @@ export default async function handler(request) {
     // Convert base64 string to raw base64 data by removing the header
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
     
-    // Initialize OpenAI client for edge runtime
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+    // Call OCR.space API
+    const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      headers: {
+        'apikey': process.env.OCR_SPACE_API_KEY || 'helloworld', // Use 'helloworld' for free demo key
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        base64Image: base64Data,
+        language: 'eng',
+        isOverlayRequired: false,
+        scale: true,
+        OCREngine: 2, // More accurate engine
+      })
     });
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "You are an ID card information extractor. Extract the following details from the ID card image: full name, ID number, and expiry date. Format your response as a JSON object with the keys: name, idNumber, and expiry. If any field is not visible or unclear, use 'Not found' as the value."
-        },
-        {
-          role: "user", 
-          content: [
-            { type: "text", text: "Extract the ID details from this image." },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-          ]
-        }
-      ],
-      max_tokens: 300,
-      temperature: 0.1,
-    });
+    const ocrResult = await ocrResponse.json();
     
-    try {
-      // Extract JSON from the response
-      const content = response.choices[0].message.content;
-      console.log("OpenAI Vision API response:", content);
+    if (!ocrResult.IsErroredOnProcessing && ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
+      const extractedText = ocrResult.ParsedResults[0].ParsedText;
+      console.log("OCR Extracted Text:", extractedText);
       
-      // Try to parse the response as JSON
-      let jsonResponse;
-      try {
-        // First attempt: Try to parse the entire content as JSON
-        jsonResponse = JSON.parse(content);
-      } catch (error) {
-        // Second attempt: Try to extract JSON from text if it contains JSON
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            jsonResponse = JSON.parse(jsonMatch[0]);
-          } catch (innerError) {
-            throw new Error("Failed to parse JSON from content");
-          }
-        } else {
-          throw new Error("No JSON object found in content");
-        }
-      }
-      
-      // Ensure all required fields exist
-      if (!jsonResponse.name) jsonResponse.name = "Not found";
-      if (!jsonResponse.idNumber) jsonResponse.idNumber = "Not found";
-      if (!jsonResponse.expiry) jsonResponse.expiry = "Not found";
+      // Parse extracted text to find ID details
+      // This is a simple implementation - you might need more sophisticated parsing logic
+      const idDetails = {
+        name: extractNameFromText(extractedText),
+        idNumber: extractIdNumberFromText(extractedText),
+        expiry: extractExpiryFromText(extractedText)
+      };
       
       return new Response(
-        JSON.stringify(jsonResponse),
+        JSON.stringify(idDetails),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error) {
-      console.error("Error parsing OpenAI response:", error, response.choices[0].message.content);
-      
-      // Return error if parsing fails
+    } else {
+      console.error("OCR Processing Error:", ocrResult.ErrorMessage || "Unknown error");
       return new Response(
         JSON.stringify({ 
-          error: "Failed to parse ID details", 
+          error: ocrResult.ErrorMessage || "OCR processing failed", 
           name: "Not found", 
           idNumber: "Not found", 
           expiry: "Not found" 
@@ -114,4 +89,59 @@ export default async function handler(request) {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
+}
+
+// Helper functions to extract ID details from OCR text
+function extractNameFromText(text) {
+  // Look for common name patterns
+  // This is a simplified example - adjust based on your ID card format
+  const nameRegex = /name[:\s]+([A-Za-z\s]+)/i;
+  const match = text.match(nameRegex);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  // If specific pattern fails, try to find the most likely name
+  // This assumes the name is usually at the beginning of the ID
+  const lines = text.split('\n').filter(line => line.trim());
+  if (lines.length > 0 && !lines[0].includes('ID') && !lines[0].includes('CARD')) {
+    return lines[0].trim();
+  }
+  
+  return "Not found";
+}
+
+function extractIdNumberFromText(text) {
+  // Look for ID number patterns (usually digits with possible separators)
+  const idRegex = /(?:id|number|#)[:\s]*([A-Z0-9\-\/]+)/i;
+  const match = text.match(idRegex);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  // Alternative: look for sequences of digits that could be ID numbers
+  const digitSequences = text.match(/\b\d{6,12}\b/g);
+  if (digitSequences && digitSequences.length > 0) {
+    return digitSequences[0];
+  }
+  
+  return "Not found";
+}
+
+function extractExpiryFromText(text) {
+  // Look for expiry date patterns
+  const expiryRegex = /(?:expiry|expiration|exp|valid until)[:\s]*([\d\/\.\-]+)/i;
+  const match = text.match(expiryRegex);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  // Alternative: look for date patterns
+  const datePatterns = text.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/g);
+  if (datePatterns && datePatterns.length > 0) {
+    // Usually the last date on an ID is the expiry
+    return datePatterns[datePatterns.length - 1];
+  }
+  
+  return "Not found";
 }
