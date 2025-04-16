@@ -111,59 +111,36 @@ export default async function handler(request) {
 
 // Helper functions to extract ID details from OCR text
 function extractNameFromText(text) {
-  // Split text into lines and clean them
-  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
-  
-  // Look for name patterns in the first few lines
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const line = lines[i].toLowerCase();
-    // Skip lines that are likely headers or other information
-    if (line.includes('card') || line.includes('republic') || line.includes('identity')) {
-      continue;
-    }
-    // If we find a line with actual text that's not a number or date, it's likely the name
-    if (/[A-Za-z\s]{5,}/.test(lines[i]) && !/\d/.test(lines[i])) {
-      return lines[i].trim();
-    }
+  // Look for common name patterns
+  // This is a simplified example - adjust based on your ID card format
+  const nameRegex = /name[:\s]+([A-Za-z\s]+)/i;
+  const match = text.match(nameRegex);
+  if (match && match[1]) {
+    return match[1].trim();
   }
   
-  // Fallback: try to find name with s/o or d/o patterns (son of/daughter of)
-  const fatherPattern = /([A-Za-z\s]+)\s+(?:s\/o|d\/o|S\/O|D\/O)\s+([A-Za-z\s]+)/;
-  const fatherMatch = text.match(fatherPattern);
-  if (fatherMatch) {
-    return `${fatherMatch[1].trim()} s/o ${fatherMatch[2].trim()}`;
+  // If specific pattern fails, try to find the most likely name
+  // This assumes the name is usually at the beginning of the ID
+  const lines = text.split('\n').filter(line => line.trim());
+  if (lines.length > 0 && !lines[0].includes('ID') && !lines[0].includes('CARD')) {
+    return lines[0].trim();
   }
   
   return "Not found";
 }
 
 function extractIdNumberFromText(text) {
-  // Look for document number patterns
-  const docPatterns = [
-    /doc(?:ument)?\s*(?:no|number|#)?[:\s]*([A-Z0-9\-\/]+)/i,
-    /card\s*(?:no|number|#)?[:\s]*([A-Z0-9\-\/]+)/i,
-    /no[:\s]*([A-Z0-9\-\/]{6,})/i
-  ];
-  
-  for (const pattern of docPatterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
+  // Look for ID number patterns (usually digits with possible separators)
+  const idRegex = /(?:id|number|#)[:\s]*([A-Z0-9\-\/]+)/i;
+  const match = text.match(idRegex);
+  if (match && match[1]) {
+    return match[1].trim();
   }
   
-  // Alternative: look for sequences of digits and letters that could be document numbers
-  const numberPattern = /\b[A-Z0-9\-\/]{6,}\b/g;
-  const matches = text.match(numberPattern);
-  if (matches) {
-    // Filter out dates and other common number patterns
-    const validMatches = matches.filter(match => 
-      !/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(match) && // not a date
-      !/^\d+$/.test(match) // not just a sequence of numbers
-    );
-    if (validMatches.length > 0) {
-      return validMatches[0];
-    }
+  // Alternative: look for sequences of digits that could be ID numbers
+  const digitSequences = text.match(/\b\d{6,12}\b/g);
+  if (digitSequences && digitSequences.length > 0) {
+    return digitSequences[0];
   }
   
   return "Not found";
