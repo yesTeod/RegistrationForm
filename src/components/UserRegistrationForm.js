@@ -358,7 +358,7 @@ import React, { useState, useRef, useEffect } from "react";
            <div className="mt-4 text-xs text-gray-600">
              {idDetails ? (
                <div>
-                 <p><strong>Name:</strong> {idDetails.name}</p>
+                 <p><strong>Name:</strong> {idDetails.name} {idDetails.fatherName}</p>
                  <p><strong>ID No:</strong> {idDetails.idNumber}</p>
                  <p><strong>Expiry:</strong> {idDetails.expiry}</p>
                </div>
