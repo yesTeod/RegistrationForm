@@ -114,40 +114,67 @@ function extractNameFromText(text) {
   // Split text into lines and clean them
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   
+  // Common header/footer text to ignore
+  const commonHeaders = [
+    'european union',
+    'identity card',
+    'identification',
+    'republic',
+    'national',
+    'card',
+    'valid',
+    'signature',
+    'nationality',
+    'birth',
+    'issued',
+    'expiry',
+    'sex',
+    'government',
+    'authority'
+  ];
+  
   // First try to find name with s/o or d/o patterns (son of/daughter of)
-  const fatherPattern = /([A-Za-z\s]+)\s+(?:s\/o|d\/o|S\/O|D\/O|son\s+of|daughter\s+of)\s+([A-Za-z\s]+)/i;
+  const fatherPattern = /([A-Za-z\s]{2,})\s+(?:s\/o|d\/o|S\/O|D\/O|son\s+of|daughter\s+of)\s+([A-Za-z\s]{2,})/i;
   const fullText = lines.join(' ');
   const fatherMatch = fullText.match(fatherPattern);
   if (fatherMatch) {
     const personName = fatherMatch[1].trim();
     const fatherName = fatherMatch[2].trim();
-    return `${personName} s/o ${fatherName}`;
+    // Validate that neither name contains common header words
+    if (!commonHeaders.some(header => 
+        personName.toLowerCase().includes(header) || 
+        fatherName.toLowerCase().includes(header))) {
+      return `${personName} s/o ${fatherName}`;
+    }
   }
 
-  // If no s/o pattern found, look for two consecutive name-like lines
-  let nameFound = false;
+  // If no s/o pattern found, look for name-like lines
   let names = [];
   
   for (let i = 0; i < Math.min(7, lines.length); i++) {
-    const line = lines[i].toLowerCase();
-    // Skip common header lines
-    if (line.includes('card') || line.includes('republic') || 
-        line.includes('identity') || line.includes('government') ||
+    const line = lines[i];
+    const lowerLine = line.toLowerCase();
+    
+    // Skip if line contains any common header text
+    if (commonHeaders.some(header => lowerLine.includes(header)) ||
         /^\d+$/.test(line) || // Skip lines with only numbers
-        line.length < 3) { // Skip very short lines
+        line.length < 3 || // Skip very short lines
+        /[0-9\/]/.test(line) || // Skip lines with numbers or slashes (likely dates)
+        /^[A-Z\s]+$/.test(line)) { // Skip lines in ALL CAPS (likely headers)
       continue;
     }
     
-    // Check if line contains a valid name (letters and spaces, reasonable length)
-    if (/^[A-Za-z\s]{3,}$/i.test(lines[i]) && !/\d/.test(lines[i])) {
-      names.push(lines[i].trim());
+    // Check if line contains a valid name (proper case letters and spaces)
+    // Look for names that start with a capital letter followed by lowercase
+    if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(line)) {
+      names.push(line);
       if (names.length === 2) {
         return `${names[0]} s/o ${names[1]}`;
       }
     }
   }
   
-  // If we found at least one name
+  // If we found at least one valid name
   if (names.length === 1) {
     return names[0];
   }
