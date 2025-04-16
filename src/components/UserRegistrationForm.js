@@ -15,6 +15,7 @@ import React, { useState, useRef, useEffect } from "react";
    const [previewIndex, setPreviewIndex] = useState(0);
    const [idDetails, setIdDetails] = useState(null); // state for extracted details
    const [isUploading, setIsUploading] = useState(false);
+   const [isExtracting, setIsExtracting] = useState(false);
 
    const videoRef = useRef(null);
    const faceVideoRef = useRef(null);
@@ -93,10 +94,11 @@ import React, { useState, useRef, useEffect } from "react";
      }
    };
  
-   // Function to extract ID details using your backend which connects with OpenAI.
+   // Function to extract ID details using OpenAI Vision API
    async function extractIdDetails(imageData) {
      try {
-       const response = await fetch("/api/extract-id.js", {
+       setIsExtracting(true);
+       const response = await fetch("/api/extract-id", {
          method: "POST",
          headers: { "Content-Type": "application/json" },
          body: JSON.stringify({ image: imageData })
@@ -109,6 +111,8 @@ import React, { useState, useRef, useEffect } from "react";
      } catch (error) {
        console.error("Error extracting ID details:", error);
        return null;
+     } finally {
+       setIsExtracting(false);
      }
    }
  
@@ -196,15 +200,15 @@ import React, { useState, useRef, useEffect } from "react";
  
    // When the registration is confirmed (step "completed") trigger the OCR extraction.
    useEffect(() => {
-     if (step === "completed" && photoFront && !idDetails) {
+     if (step === "completed" && photoFront && !idDetails && !isExtracting) {
        extractIdDetails(photoFront).then((details) => {
-         console.log("Extracted ID Details:", details); // Added console print
+         console.log("Extracted ID Details:", details);
          if (details) {
            setIdDetails(details);
          }
        });
      }
-   }, [step, photoFront, idDetails]);
+   }, [step, photoFront, idDetails, isExtracting]);
  
    useEffect(() => {
      const card = containerRef.current;
@@ -411,8 +415,18 @@ import React, { useState, useRef, useEffect } from "react";
                  <p><strong>ID No:</strong> {idDetails.idNumber}</p>
                  <p><strong>Expiry:</strong> {idDetails.expiry}</p>
                </div>
+             ) : isExtracting ? (
+               <div className="flex flex-col items-center justify-center">
+                 <p>Scanning ID details...</p>
+                 <div className="mt-2 w-8 h-8 border-2 border-gray-300 border-t-yellow-400 rounded-full animate-spin"></div>
+               </div>
              ) : (
-               <p>Scanning ID details...</p>
+               <button 
+                 onClick={() => extractIdDetails(photoFront).then(setIdDetails)}
+                 className="px-4 py-1 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full text-xs"
+               >
+                 Scan ID Details
+               </button>
              )}
            </div>
            <div className="flex justify-center gap-4 pt-2">
