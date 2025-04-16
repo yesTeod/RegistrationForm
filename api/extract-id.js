@@ -28,12 +28,14 @@ export default async function handler(request) {
       );
     }
 
-    // Convert base64 string to raw base64 data by removing the header
-    const base64Data = image.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+    // Keep the original data URI format if it exists, or add it if it doesn't
+    const base64Image = image.startsWith('data:image/') 
+      ? image 
+      : `data:image/jpeg;base64,${image}`;
     
     // Call OCR.space API
     const formData = {
-      base64Image: base64Data,
+      base64Image: base64Image,
       apikey: process.env.OCR_SPACE_API_KEY || 'helloworld',
       language: 'eng',
       isOverlayRequired: false,
