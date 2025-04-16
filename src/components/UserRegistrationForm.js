@@ -130,37 +130,69 @@ export default function UserRegistrationForm() {
     startCamera("user", faceVideoRef);
   };
 
-  // Function to extract ID details using OpenAI Vision API
+// This helper function compresses the image dataURL for OCR.
+function compressImageForOCR(dataURL, quality = 0.9) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = dataURL;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Optionally, you can also reduce dimensions here if needed.
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      // Convert image to JPEG with the specified quality.
+      const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
+      // Estimate file size in KB (base64 encoding approximates to 3/4 the length in bytes)
+      const fileSizeKb = Math.round((compressedDataURL.length * (3 / 4)) / 1024);
+      if (fileSizeKb > 1024 && quality > 0.1) {
+        // Reduce quality further if file size is still too high.
+        compressImageForOCR(dataURL, quality - 0.1).then(resolve);
+      } else {
+        resolve(compressedDataURL);
+      }
+    };
+  });
+}
+
+
   async function extractIdDetails(imageData) {
-    try {
-      setIsExtracting(true);
-      const response = await fetch("/api/extract-id", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageData }),
-      });
-      if (!response.ok) {
-        throw new Error("OCR request failed");
-      }
-      const data = await response.json();
+  try {
+    setIsExtracting(true);
 
-      // Check if response contains an error
-      if (data.error) {
-        console.warn("API returned an error:", data.error);
-      }
-
-      return data;
-    } catch (error) {
-      console.error("Error extracting ID details:", error);
-      return {
-        name: "Not found",
-        idNumber: "Not found",
-        expiry: "Not found",
-      };
-    } finally {
-      setIsExtracting(false);
+    // Estimate file size and compress if necessary.
+    const fileSizeKb = Math.round((imageData.length * (3 / 4)) / 1024);
+    let processedImage = imageData;
+    if (fileSizeKb > 1024) {
+      processedImage = await compressImageForOCR(imageData);
     }
+
+    const response = await fetch("/api/extract-id", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: processedImage }),
+    });
+    if (!response.ok) {
+      throw new Error("OCR request failed");
+    }
+    const data = await response.json();
+    if (data.error) {
+      console.warn("API returned an error:", data.error);
+    }
+    return data;
+  } catch (error) {
+    console.error("Error extracting ID details:", error);
+    return {
+      name: "Not found",
+      idNumber: "Not found",
+      expiry: "Not found",
+    };
+  } finally {
+    setIsExtracting(false);
   }
+}
+
 
   // Trigger OCR extraction when registration is completed.
   useEffect(() => {
