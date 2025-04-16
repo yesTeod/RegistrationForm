@@ -107,10 +107,20 @@ import React, { useState, useRef, useEffect } from "react";
          throw new Error("OCR request failed");
        }
        const data = await response.json();
+       
+       // Check if response contains an error
+       if (data.error) {
+         console.warn("API returned an error:", data.error);
+       }
+       
        return data;
      } catch (error) {
        console.error("Error extracting ID details:", error);
-       return null;
+       return {
+         name: "Not found",
+         idNumber: "Not found",
+         expiry: "Not found"
+       };
      } finally {
        setIsExtracting(false);
      }
