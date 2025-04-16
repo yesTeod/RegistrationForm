@@ -1,15 +1,10 @@
-import { OpenAI } from 'openai';
+// Using direct import for edge function compatibility
+import OpenAI from 'openai';
 
 // This is a Vercel Edge Function - better for long-running processes
 export const config = {
   runtime: 'edge',
   regions: ['iad1'], // US East (N. Virginia)
-};
-
-const FALLBACK_DATA = {
-  name: "John Doe",
-  idNumber: "ID12345678",
-  expiry: "01/01/2030"
 };
 
 export default async function handler(request) {
@@ -28,16 +23,15 @@ export default async function handler(request) {
 
     if (!image) {
       return new Response(
-        JSON.stringify(FALLBACK_DATA),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: "Image data is required" }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
     // Convert base64 string to raw base64 data by removing the header
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
     
-    // Use OpenAI's Vision API directly for ID extraction
-    // This skips the traditional OCR step entirely
+    // Initialize OpenAI client for edge runtime
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -86,9 +80,9 @@ export default async function handler(request) {
       }
       
       // Ensure all required fields exist
-      if (!jsonResponse.name) jsonResponse.name = "Name not found";
-      if (!jsonResponse.idNumber) jsonResponse.idNumber = "ID not found";
-      if (!jsonResponse.expiry) jsonResponse.expiry = "Expiry not found";
+      if (!jsonResponse.name) jsonResponse.name = "Not found";
+      if (!jsonResponse.idNumber) jsonResponse.idNumber = "Not found";
+      if (!jsonResponse.expiry) jsonResponse.expiry = "Not found";
       
       return new Response(
         JSON.stringify(jsonResponse),
@@ -97,16 +91,26 @@ export default async function handler(request) {
     } catch (error) {
       console.error("Error parsing OpenAI response:", error, response.choices[0].message.content);
       
-      // Return fallback if parsing fails
+      // Return error if parsing fails
       return new Response(
-        JSON.stringify(FALLBACK_DATA),
+        JSON.stringify({ 
+          error: "Failed to parse ID details", 
+          name: "Not found", 
+          idNumber: "Not found", 
+          expiry: "Not found" 
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
   } catch (error) {
     console.error('Error processing request:', error);
     return new Response(
-      JSON.stringify(FALLBACK_DATA),
+      JSON.stringify({ 
+        error: "Processing error", 
+        name: "Not found", 
+        idNumber: "Not found", 
+        expiry: "Not found" 
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
