@@ -129,7 +129,7 @@ export default function UserRegistrationForm() {
     await delay(200); // wait for DOM to update
     startCamera("user", faceVideoRef);
   };
-  
+
 // This helper function compresses the image dataURL for OCR.
 function compressImageForOCR(dataURL, quality = 0.9) {
   return new Promise((resolve) => {
@@ -156,7 +156,8 @@ function compressImageForOCR(dataURL, quality = 0.9) {
   });
 }
 
- async function extractIdDetails(imageData) {
+
+  async function extractIdDetails(imageData) {
   try {
     setIsExtracting(true);
 
@@ -191,6 +192,7 @@ function compressImageForOCR(dataURL, quality = 0.9) {
     setIsExtracting(false);
   }
 }
+
 
   // Trigger OCR extraction when registration is completed.
   useEffect(() => {
