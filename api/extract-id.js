@@ -33,13 +33,14 @@ export default async function handler(request) {
     
     // Call OCR.space API
     const formData = {
-      base64Image: base64Data,  // Send raw base64 data without the data URI prefix
+      base64Image: base64Data,
+      apikey: process.env.OCR_SPACE_API_KEY || 'helloworld',
       language: 'eng',
       isOverlayRequired: false,
       scale: true,
       OCREngine: 2, // More accurate engine
       detectOrientation: true, // Auto-detect image orientation
-      filetype: 'JPG'  // Explicitly specify file type
+      filetype: 'jpg'  // Use lowercase 'jpg'
     };
 
     console.log('Sending request to OCR.space...');
@@ -47,10 +48,9 @@ export default async function handler(request) {
     const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
       method: 'POST',
       headers: {
-        'apikey': process.env.OCR_SPACE_API_KEY || 'helloworld',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify(formData)
+      body: new URLSearchParams(formData).toString()
     });
     
     if (!ocrResponse.ok) {
