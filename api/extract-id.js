@@ -66,9 +66,12 @@ export default async function handler(request) {
       const extractedText = ocrResult.ParsedResults[0].ParsedText;
       console.log("OCR Extracted Text:", extractedText);
       
-      // Parse extracted text to find ID details
+      // Use updated function to extract name and father's name
+      const nameDetails = extractNameFromText(extractedText);
+      
       const idDetails = {
-        name: extractNameFromText(extractedText),
+        name: nameDetails.name,
+        fatherName: nameDetails.fatherName,
         idNumber: extractIdNumberFromText(extractedText),
         expiry: extractExpiryFromText(extractedText)
       };
@@ -84,6 +87,7 @@ export default async function handler(request) {
         JSON.stringify({ 
           error: errorMessage, 
           name: "Not found", 
+          fatherName: "Not found",
           idNumber: "Not found", 
           expiry: "Not found",
           debug: { 
@@ -101,6 +105,7 @@ export default async function handler(request) {
       JSON.stringify({ 
         error: error.message || "Processing error", 
         name: "Not found", 
+        fatherName: "Not found",
         idNumber: "Not found", 
         expiry: "Not found" 
       }),
@@ -109,7 +114,7 @@ export default async function handler(request) {
   }
 }
 
-// Helper functions to extract ID details from OCR text
+// Helper function to extract the name and father's name from OCR text
 function extractNameFromText(text) {
   // Split text into lines and clean them
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
@@ -133,53 +138,53 @@ function extractNameFromText(text) {
     'authority'
   ];
   
-  // First try to find name with s/o or d/o patterns (son of/daughter of)
+  // First, try to find a pattern that uses s/o or d/o (son/daughter of)
   const fatherPattern = /([A-Za-z\s]{2,})\s+(?:s\/o|d\/o|S\/O|D\/O|son\s+of|daughter\s+of)\s+([A-Za-z\s]{2,})/i;
   const fullText = lines.join(' ');
   const fatherMatch = fullText.match(fatherPattern);
   if (fatherMatch) {
     const personName = fatherMatch[1].trim();
     const fatherName = fatherMatch[2].trim();
-    // Validate that neither name contains common header words
+    // Ensure that neither value matches any common header keywords
     if (!commonHeaders.some(header => 
         personName.toLowerCase().includes(header) || 
         fatherName.toLowerCase().includes(header))) {
-      return `${personName} s/o ${fatherName}`;
+      return { name: personName, fatherName: fatherName };
     }
   }
 
-  // If no s/o pattern found, look for name-like lines
+  // If no s/o pattern was found, look for potential name lines in the first few entries
   let names = [];
   
   for (let i = 0; i < Math.min(7, lines.length); i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
     
-    // Skip if line contains any common header text
+    // Skip the line if it contains header words, only numbers, is too short, or contains date-like patterns
     if (commonHeaders.some(header => lowerLine.includes(header)) ||
-        /^\d+$/.test(line) || // Skip lines with only numbers
-        line.length < 3 || // Skip very short lines
-        /[0-9\/]/.test(line) || // Skip lines with numbers or slashes (likely dates)
-        /^[A-Z\s]+$/.test(line)) { // Skip lines in ALL CAPS (likely headers)
+        /^\d+$/.test(line) ||
+        line.length < 3 ||
+        /[0-9\/]/.test(line) ||
+        /^[A-Z\s]+$/.test(line)) {
       continue;
     }
     
-    // Check if line contains a valid name (proper case letters and spaces)
-    // Look for names that start with a capital letter followed by lowercase
+    // Check if the line looks like a valid name (starting with a capital letter)
     if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(line)) {
       names.push(line);
+      // Return as soon as you get two valid name lines (first is person's name, second is father's name)
       if (names.length === 2) {
-        return `${names[0]} s/o ${names[1]}`;
+        return { name: names[0], fatherName: names[1] };
       }
     }
   }
   
-  // If we found at least one valid name
+  // If only one valid name was found, return it and default father's name to "Not found"
   if (names.length === 1) {
-    return names[0];
+    return { name: names[0], fatherName: "Not found" };
   }
   
-  return "Not found";
+  return { name: "Not found", fatherName: "Not found" };
 }
 
 function extractIdNumberFromText(text) {
