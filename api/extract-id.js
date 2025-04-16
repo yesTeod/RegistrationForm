@@ -29,32 +29,42 @@ export default async function handler(request) {
     }
 
     // Convert base64 string to raw base64 data by removing the header
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+    const base64Data = image.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
     
     // Call OCR.space API
+    const formData = {
+      base64Image: `data:image/jpeg;base64,${base64Data}`,  // Ensure proper format with data URI
+      language: 'eng',
+      isOverlayRequired: false,
+      scale: true,
+      OCREngine: 2, // More accurate engine
+      detectOrientation: true, // Auto-detect image orientation
+      filetype: 'JPG'  // Explicitly specify file type
+    };
+
+    console.log('Sending request to OCR.space...');
+    
     const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
       method: 'POST',
       headers: {
-        'apikey': process.env.OCR_SPACE_API_KEY || 'helloworld', // Use 'helloworld' for free demo key
+        'apikey': process.env.OCR_SPACE_API_KEY || 'helloworld',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        base64Image: base64Data,
-        language: 'eng',
-        isOverlayRequired: false,
-        scale: true,
-        OCREngine: 2, // More accurate engine
-      })
+      body: JSON.stringify(formData)
     });
     
+    if (!ocrResponse.ok) {
+      throw new Error(`OCR API responded with status: ${ocrResponse.status}`);
+    }
+
     const ocrResult = await ocrResponse.json();
+    console.log('OCR Response:', JSON.stringify(ocrResult, null, 2));
     
     if (!ocrResult.IsErroredOnProcessing && ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
       const extractedText = ocrResult.ParsedResults[0].ParsedText;
       console.log("OCR Extracted Text:", extractedText);
       
       // Parse extracted text to find ID details
-      // This is a simple implementation - you might need more sophisticated parsing logic
       const idDetails = {
         name: extractNameFromText(extractedText),
         idNumber: extractIdNumberFromText(extractedText),
@@ -66,13 +76,19 @@ export default async function handler(request) {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     } else {
-      console.error("OCR Processing Error:", ocrResult.ErrorMessage || "Unknown error");
+      const errorMessage = ocrResult.ErrorMessage || ocrResult.ErrorDetails || "Unknown OCR processing error";
+      console.error("OCR Processing Error:", errorMessage);
       return new Response(
         JSON.stringify({ 
-          error: ocrResult.ErrorMessage || "OCR processing failed", 
+          error: errorMessage, 
           name: "Not found", 
           idNumber: "Not found", 
-          expiry: "Not found" 
+          expiry: "Not found",
+          debug: { 
+            isErrored: ocrResult.IsErroredOnProcessing,
+            hasResults: Boolean(ocrResult.ParsedResults),
+            resultCount: ocrResult.ParsedResults?.length || 0
+          }
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
@@ -81,7 +97,7 @@ export default async function handler(request) {
     console.error('Error processing request:', error);
     return new Response(
       JSON.stringify({ 
-        error: "Processing error", 
+        error: error.message || "Processing error", 
         name: "Not found", 
         idNumber: "Not found", 
         expiry: "Not found" 
