@@ -114,9 +114,8 @@ export default async function handler(request) {
   }
 }
 
-// Helper function to extract the name and father's name from OCR text
 function extractNameFromText(text) {
-  // Split text into lines and clean them
+  // Split text into lines and clean them up
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   
   // Common header/footer text to ignore
@@ -138,41 +137,47 @@ function extractNameFromText(text) {
     'authority'
   ];
   
-  // First, try to find a pattern that uses s/o or d/o (son/daughter of)
-  const fatherPattern = /([A-Za-z\s]{2,})\s+(?:s\/o|d\/o|S\/O|D\/O|son\s+of|daughter\s+of)\s+([A-Za-z\s]{2,})/i;
+  // First, try to find a pattern using s/o or d/o (son/daughter of)
+  const fatherPattern = /([A-Za-z\s]{2,})\s+(?:s\/o|d\/o|son\s+of|daughter\s+of)\s+([A-Za-z\s]{2,})/i;
   const fullText = lines.join(' ');
   const fatherMatch = fullText.match(fatherPattern);
   if (fatherMatch) {
     const personName = fatherMatch[1].trim();
     const fatherName = fatherMatch[2].trim();
-    // Ensure that neither value matches any common header keywords
+    // Ensure that neither name is one of the common headers
     if (!commonHeaders.some(header => 
-        personName.toLowerCase().includes(header) || 
-        fatherName.toLowerCase().includes(header))) {
+          personName.toLowerCase().includes(header) || 
+          fatherName.toLowerCase().includes(header))) {
       return { name: personName, fatherName: fatherName };
     }
   }
-
-  // If no s/o pattern was found, look for potential name lines in the first few entries
+  
+  // Fallback: look through the first few lines to find candidate names.
   let names = [];
   
   for (let i = 0; i < Math.min(7, lines.length); i++) {
-    const line = lines[i];
+    let line = lines[i];
     const lowerLine = line.toLowerCase();
     
-    // Skip the line if it contains header words, only numbers, is too short, or contains date-like patterns
+    // Skip lines that contain common header words, are just numbers, are too short, or have date-like patterns
     if (commonHeaders.some(header => lowerLine.includes(header)) ||
         /^\d+$/.test(line) ||
         line.length < 3 ||
-        /[0-9\/]/.test(line) ||
-        /^[A-Z\s]+$/.test(line)) {
+        /[0-9\/]/.test(line)) {
       continue;
     }
     
-    // Check if the line looks like a valid name (starting with a capital letter)
-    if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(line)) {
-      names.push(line);
-      // Return as soon as you get two valid name lines (first is person's name, second is father's name)
+    // If the line is all uppercase, convert it to proper case for evaluation.
+    let candidate = line;
+    if (/^[A-Z\s]+$/.test(line)) {
+      candidate = line.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    }
+    
+    // Check if this candidate looks like a valid name.
+    // The regex below checks for at least two words (e.g., first name and last name) where each starts with a capital letter.
+    if (/^([A-Z][a-z]+)(\s+[A-Z][a-z]+)+$/.test(candidate)) {
+      names.push(candidate);
+      // Return as soon as we collect two names (person and father's names)
       if (names.length === 2) {
         return { name: names[0], fatherName: names[1] };
       }
