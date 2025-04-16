@@ -152,7 +152,7 @@ function extractNameFromText(text) {
   
   if (data.fatherName === "Not found") {
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase() === "фамилия" && i + 1 < lines.length) {
+      if (lines[i].toLowerCase() === "презиме" && i + 1 < lines.length) {
         data.fatherName = lines[i + 1];
       }
     }
