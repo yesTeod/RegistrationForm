@@ -130,17 +130,32 @@ function extractNameFromText(text) {
 }
 
 function extractIdNumberFromText(text) {
-  // Look for ID number patterns (usually digits with possible separators)
-  const idRegex = /(?:id|number|#)[:\s]*([A-Z0-9\-\/]+)/i;
-  const match = text.match(idRegex);
-  if (match && match[1]) {
-    return match[1].trim();
+  // Look for document number patterns
+  const docPatterns = [
+    /doc(?:ument)?\s*(?:no|number|#)?[:\s]*([A-Z0-9\-\/]+)/i,
+    /card\s*(?:no|number|#)?[:\s]*([A-Z0-9\-\/]+)/i,
+    /no[:\s]*([A-Z0-9\-\/]{6,})/i
+  ];
+  
+  for (const pattern of docPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
   }
   
-  // Alternative: look for sequences of digits that could be ID numbers
-  const digitSequences = text.match(/\b\d{6,12}\b/g);
-  if (digitSequences && digitSequences.length > 0) {
-    return digitSequences[0];
+  // Alternative: look for sequences of digits and letters that could be document numbers
+  const numberPattern = /\b[A-Z0-9\-\/]{6,}\b/g;
+  const matches = text.match(numberPattern);
+  if (matches) {
+    // Filter out dates and other common number patterns
+    const validMatches = matches.filter(match => 
+      !/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(match) && // not a date
+      !/^\d+$/.test(match) // not just a sequence of numbers
+    );
+    if (validMatches.length > 0) {
+      return validMatches[0];
+    }
   }
   
   return "Not found";
