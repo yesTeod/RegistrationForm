@@ -5,15 +5,12 @@ import React, { useState, useRef, useEffect } from "react";
    const [email, setEmail] = useState("");
    const [password, setPassword] = useState("");
    const [photoFront, setPhotoFront] = useState(null);
-   const [photoBack, setPhotoBack] = useState(null);
-   const [capturingSide, setCapturingSide] = useState("front");
    const [cameraAvailable, setCameraAvailable] = useState(true);
    const [cameraStatus, setCameraStatus] = useState("idle");
    const [isFlipping, setIsFlipping] = useState(false);
    const [faceDetected, setFaceDetected] = useState(false);
    const [mockMode, setMockMode] = useState(false);
-   const [previewIndex, setPreviewIndex] = useState(0);
-   const [idDetails, setIdDetails] = useState(null); // state for extracted details
+   const [idDetails, setIdDetails] = useState(null);
    const [isUploading, setIsUploading] = useState(false);
    const [isExtracting, setIsExtracting] = useState(false);
 
@@ -79,14 +76,8 @@ import React, { useState, useRef, useEffect } from "react";
      try {
        setIsUploading(true);
        const compressedImage = await compressImage(file);
-       
-       if (capturingSide === "front") {
-         setPhotoFront(compressedImage);
-         await handleFlip("camera", "right", "back");
-       } else {
-         setPhotoBack(compressedImage);
-         await handleFlip("completed", "right");
-       }
+       setPhotoFront(compressedImage);
+       await handleFlip("completed", "right");
      } catch (error) {
        console.error("Error compressing image:", error);
      } finally {
@@ -94,39 +85,7 @@ import React, { useState, useRef, useEffect } from "react";
      }
    };
  
-   // Function to extract ID details using OpenAI Vision API
-   async function extractIdDetails(imageData) {
-     try {
-       setIsExtracting(true);
-       const response = await fetch("/api/extract-id", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ image: imageData })
-       });
-       if (!response.ok) {
-         throw new Error("OCR request failed");
-       }
-       const data = await response.json();
-       
-       // Check if response contains an error
-       if (data.error) {
-         console.warn("API returned an error:", data.error);
-       }
-       
-       return data;
-     } catch (error) {
-       console.error("Error extracting ID details:", error);
-       return {
-         name: "Not found",
-         idNumber: "Not found",
-         expiry: "Not found"
-       };
-     } finally {
-       setIsExtracting(false);
-     }
-   }
- 
-   const handleFlip = async (nextStep, direction = "right", nextCapturingSide = null) => {
+   const handleFlip = async (nextStep, direction = "right") => {
      if (isFlipping) return;
      setIsFlipping(true);
      const card = containerRef.current;
@@ -136,9 +95,6 @@ import React, { useState, useRef, useEffect } from "react";
      }
      await delay(600);
      setStep(nextStep);
-     if (nextCapturingSide !== null) {
-       setCapturingSide(nextCapturingSide);
-     }
      if (card) card.style.transform = "rotateY(0deg)";
      await delay(600);
      setIsFlipping(false);
@@ -172,7 +128,6 @@ import React, { useState, useRef, useEffect } from "react";
    };
  
    const handleFormSubmit = () => {
-     setCapturingSide("front");
      startCamera();
      handleFlip("camera", "right");
    };
@@ -182,19 +137,13 @@ import React, { useState, useRef, useEffect } from "react";
        const context = canvasRef.current.getContext("2d");
        context.drawImage(videoRef.current, 0, 0, 320, 240);
        const imageData = canvasRef.current.toDataURL("image/png");
-       if (capturingSide === "front") {
-         setPhotoFront(imageData);
-         await handleFlip("camera", "right", "back");
-       } else {
-         setPhotoBack(imageData);
-         stopCamera();
-         handleFlip("completed", "right");
-       }
+       setPhotoFront(imageData);
+       stopCamera();
+       handleFlip("completed", "right");
      }
    };
  
-   const retakePhoto = async (side) => {
-     setCapturingSide(side);
+   const retakePhoto = async () => {
      startCamera();
      await delay(200);
      await handleFlip("camera", "left");
@@ -207,6 +156,38 @@ import React, { useState, useRef, useEffect } from "react";
      await delay(200); // wait for DOM to update
      startCamera("user", faceVideoRef);
    };
+ 
+   // Function to extract ID details using OpenAI Vision API
+   async function extractIdDetails(imageData) {
+     try {
+       setIsExtracting(true);
+       const response = await fetch("/api/extract-id", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ image: imageData })
+       });
+       if (!response.ok) {
+         throw new Error("OCR request failed");
+       }
+       const data = await response.json();
+       
+       // Check if response contains an error
+       if (data.error) {
+         console.warn("API returned an error:", data.error);
+       }
+       
+       return data;
+     } catch (error) {
+       console.error("Error extracting ID details:", error);
+       return {
+         name: "Not found",
+         idNumber: "Not found",
+         expiry: "Not found"
+       };
+     } finally {
+       setIsExtracting(false);
+     }
+   }
  
    // When the registration is confirmed (step "completed") trigger the OCR extraction.
    useEffect(() => {
@@ -310,7 +291,7 @@ import React, { useState, useRef, useEffect } from "react";
        {step === "camera" && (
          <div className="text-center space-y-4">
            <h2 className="text-lg font-medium text-gray-700">
-             Capture {capturingSide === "front" ? "Front" : "Back"} of ID
+             Capture ID Front
            </h2>
            <div className="w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
              <video
@@ -332,27 +313,23 @@ import React, { useState, useRef, useEffect } from "react";
                onClick={capturePhoto}
                className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md"
              >
-               Capture {capturingSide === "front" ? "Front" : "Back"}
+               Capture Front
              </button>
              
-             {capturingSide === "front" && (
-               <>
-                 <input
-                   type="file"
-                   accept="image/*"
-                   ref={fileInputRef}
-                   onChange={handleFileUpload}
-                   className="hidden"
-                 />
-                 <button
-                   onClick={() => fileInputRef.current.click()}
-                   disabled={isUploading}
-                   className="bg-blue-500 hover:bg-blue-400 text-white px-4 py-2 rounded-full shadow-md"
-                 >
-                   {isUploading ? "Processing..." : "Upload Front Image"}
-                 </button>
-               </>
-             )}
+             <input
+               type="file"
+               accept="image/*"
+               ref={fileInputRef}
+               onChange={handleFileUpload}
+               className="hidden"
+             />
+             <button
+               onClick={() => fileInputRef.current.click()}
+               disabled={isUploading}
+               className="bg-blue-500 hover:bg-blue-400 text-white px-4 py-2 rounded-full shadow-md"
+             >
+               {isUploading ? "Processing..." : "Upload Image"}
+             </button>
            </div>
          </div>
        )}
@@ -363,59 +340,19 @@ import React, { useState, useRef, useEffect } from "react";
              Registration Confirmation
            </h2>
            <h3 className="text-lg text-gray-700">Email: {email}</h3>
-           <div className="flex items-center justify-center">
-             <button
-               onClick={() => setPreviewIndex(0)}
-               className="w-10 h-10 mr-2 rounded-full bg-white/80 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
-             >
-               <svg
-                 xmlns="http://www.w3.org/2000/svg"
-                 fill="none"
-                 viewBox="0 0 24 24"
-                 strokeWidth={2}
-                 stroke="currentColor"
-                 className="w-5 h-5"
-               >
-                 <path
-                   strokeLinecap="round"
-                   strokeLinejoin="round"
-                   d="M15.75 19.5L8.25 12l7.5-7.5"
-                 />
-               </svg>
-             </button>
-             <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
-               {(previewIndex === 0 ? photoFront : photoBack) ? (
-                 <img
-                   src={previewIndex === 0 ? photoFront : photoBack}
-                   alt={previewIndex === 0 ? "Front of ID" : "Back of ID"}
-                   className="w-full h-full object-cover"
-                 />
-               ) : (
-                 <span className="text-gray-600 text-lg">Photo Missing</span>
-               )}
-             </div>
-             <button
-               onClick={() => setPreviewIndex(1)}
-               className="w-10 h-10 ml-2 rounded-full bg-white/80 text-black flex items-center justify-center shadow-md transition-all duration-200 hover:bg-white hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/60"
-             >
-               <svg
-                 xmlns="http://www.w3.org/2000/svg"
-                 fill="none"
-                 viewBox="0 0 24 24"
-                 strokeWidth={2}
-                 stroke="currentColor"
-                 className="w-5 h-5"
-               >
-                 <path
-                   strokeLinecap="round"
-                   strokeLinejoin="round"
-                   d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                 />
-               </svg>
-             </button>
+           <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
+             {photoFront ? (
+               <img
+                 src={photoFront}
+                 alt="Front of ID"
+                 className="w-full h-full object-cover"
+               />
+             ) : (
+               <span className="text-gray-600 text-lg">Photo Missing</span>
+             )}
            </div>
            <div className="text-sm text-gray-500 font-medium pt-1">
-             {previewIndex === 0 ? "Front of ID" : "Back of ID"}
+             Front of ID
            </div>
            {/* Display extracted ID details in a smaller text size */}
            <div className="mt-4 text-xs text-gray-600">
@@ -441,10 +378,10 @@ import React, { useState, useRef, useEffect } from "react";
            </div>
            <div className="flex justify-center gap-4 pt-2">
              <button
-               onClick={() => retakePhoto(previewIndex === 0 ? "front" : "back")}
+               onClick={() => retakePhoto()}
                className="px-5 py-2 bg-gray-800 text-white hover:bg-gray-700 transition shadow-md"
              >
-               Retake {previewIndex === 0 ? "Front" : "Back"}
+               Retake Photo
              </button>
              <button
                onClick={handleSubmit}
