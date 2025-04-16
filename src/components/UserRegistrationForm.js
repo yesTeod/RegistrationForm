@@ -14,15 +14,84 @@ import React, { useState, useRef, useEffect } from "react";
    const [mockMode, setMockMode] = useState(false);
    const [previewIndex, setPreviewIndex] = useState(0);
    const [idDetails, setIdDetails] = useState(null); // state for extracted details
- 
+   const [isUploading, setIsUploading] = useState(false);
+
    const videoRef = useRef(null);
    const faceVideoRef = useRef(null);
    const canvasRef = useRef(null);
    const faceCanvasRef = useRef(null);
    const containerRef = useRef(null);
    const streamRef = useRef(null);
+   const fileInputRef = useRef(null);
  
    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+   // Function to compress an image file
+   const compressImage = (file) => {
+     return new Promise((resolve, reject) => {
+       const reader = new FileReader();
+       reader.readAsDataURL(file);
+       reader.onload = (event) => {
+         const img = new Image();
+         img.src = event.target.result;
+         img.onload = () => {
+           const canvas = document.createElement('canvas');
+           // Target width and height for compression
+           const maxWidth = 800;
+           const maxHeight = 600;
+           let width = img.width;
+           let height = img.height;
+           
+           // Maintain aspect ratio
+           if (width > height) {
+             if (width > maxWidth) {
+               height = Math.round((height * maxWidth) / width);
+               width = maxWidth;
+             }
+           } else {
+             if (height > maxHeight) {
+               width = Math.round((width * maxHeight) / height);
+               height = maxHeight;
+             }
+           }
+           
+           canvas.width = width;
+           canvas.height = height;
+           const ctx = canvas.getContext('2d');
+           ctx.drawImage(img, 0, 0, width, height);
+           
+           // Convert to lower quality JPEG
+           const compressedImage = canvas.toDataURL('image/jpeg', 0.7);
+           resolve(compressedImage);
+         };
+         img.onerror = (error) => reject(error);
+       };
+       reader.onerror = (error) => reject(error);
+     });
+   };
+
+   // Handle file upload and compression
+   const handleFileUpload = async (event) => {
+     const file = event.target.files[0];
+     if (!file) return;
+     
+     try {
+       setIsUploading(true);
+       const compressedImage = await compressImage(file);
+       
+       if (capturingSide === "front") {
+         setPhotoFront(compressedImage);
+         await handleFlip("camera", "right", "back");
+       } else {
+         setPhotoBack(compressedImage);
+         await handleFlip("completed", "right");
+       }
+     } catch (error) {
+       console.error("Error compressing image:", error);
+     } finally {
+       setIsUploading(false);
+     }
+   };
  
    // Function to extract ID details using your backend which connects with OpenAI.
    async function extractIdDetails(imageData) {
@@ -244,12 +313,33 @@ import React, { useState, useRef, useEffect } from "react";
                className="hidden"
              />
            </div>
-           <button
-             onClick={capturePhoto}
-             className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md"
-           >
-             Capture {capturingSide === "front" ? "Front" : "Back"}
-           </button>
+           <div className="flex flex-col md:flex-row justify-center gap-3 mt-4">
+             <button
+               onClick={capturePhoto}
+               className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md"
+             >
+               Capture {capturingSide === "front" ? "Front" : "Back"}
+             </button>
+             
+             {capturingSide === "front" && (
+               <>
+                 <input
+                   type="file"
+                   accept="image/*"
+                   ref={fileInputRef}
+                   onChange={handleFileUpload}
+                   className="hidden"
+                 />
+                 <button
+                   onClick={() => fileInputRef.current.click()}
+                   disabled={isUploading}
+                   className="bg-blue-500 hover:bg-blue-400 text-white px-4 py-2 rounded-full shadow-md"
+                 >
+                   {isUploading ? "Processing..." : "Upload Front Image"}
+                 </button>
+               </>
+             )}
+           </div>
          </div>
        )}
  
