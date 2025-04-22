@@ -15,8 +15,7 @@
       "tesseract.js-core": "^2.1.1",
       "openai": "^4.28.0",
       "serverless-http": "^2.7.0",
-      "face-api.js": "^0.22.2",
-       "faceapi": "^0.22.2"
+      "face-api.js": "^0.22.2"
     },
     "devDependencies": {
       "@types/react": "19.0.0",
