@@ -15,6 +15,9 @@ export default function UserRegistrationForm() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [faceDetected, setFaceDetected] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [faceError, setFaceError] = useState(null);
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -133,24 +136,42 @@ export default function UserRegistrationForm() {
     startCamera("user", faceVideoRef);
   };
 
-// Face detection for UX
-  useEffect(() => {
-    let intv;
-    if (step === "verification") {
-      intv = setInterval(() => {
-        const video = faceVideoRef.current;
-        const canvas = faceCanvasRef.current;
-        if (!video || !canvas) return;
-        canvas.getContext("2d").drawImage(video, 0, 0, 320, 240);
-        const data = canvas.getContext("2d").getImageData(100, 80, 120, 120).data;
-        let bright = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          if ((data[i] + data[i+1] + data[i+2]) / 3 > 60) bright++;
-        }
-        setFaceDetected(bright > 300);
-      }, 1000);
+const detectFaceOnServer = async (dataURL) => {
+    setDetecting(true);
+    setFaceError(null);
+    try {
+      const res = await fetch('/api/detect-face', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataURL }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setFaceDetected(false);
+        setFaceError(json.error || 'Detection error');
+      } else {
+        setFaceDetected(json.faceDetected);
+      }
+    } catch (e) {
+      setFaceDetected(false);
+      setFaceError('Network error');
+    } finally {
+      setDetecting(false);
     }
-    return () => clearInterval(intv);
+  };
+
+  // On verification step, poll for face detection
+  useEffect(() => {
+    let interval;
+    if (step === 'verification') {
+      interval = setInterval(() => {
+        if (faceCanvasRef.current) {
+          const dataURL = faceCanvasRef.current.toDataURL('image/png');
+          detectFaceOnServer(dataURL);
+        }
+      }, 1500);
+    }
+    return () => clearInterval(interval);
   }, [step]);
 
   // AWS Rekognition call
@@ -474,32 +495,42 @@ function compressImageForOCR(dataURL, quality = 0.9) {
 
       {step === "verification" && (
         <div className="text-center space-y-4">
-          <h2 className="text-xl font-semibold text-gray-800">Face Verification</h2>
+          <h2 className="text-xl font-semibold">
+            Face Verification
+          </h2>
+
           <div className="mx-auto w-80 h-60 relative overflow-hidden rounded-lg border">
             <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
             <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
           </div>
-          <p className={`text-sm italic ${faceDetected ? "text-green-600" : "text-gray-600"}`}>
-            {faceDetected ? "Face detected" : "Please align your face within the frame."}
+
+          <p className="text-sm italic">
+            {detecting && 'Detecting face...'}
+            {!detecting && faceDetected && 'Face detected'}
+            {!detecting && !faceDetected && 'No face detected, please align your face within the frame.'}
           </p>
+          {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
+
           <div className="flex justify-center space-x-4">
             <button
               onClick={verifyFace}
               disabled={!faceDetected || verifying}
               className="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black rounded-full"
             >
-              {verifying ? "Verifying..." : "Verify Face"}
+              {verifying ? 'Verifying...' : 'Verify Face'}
             </button>
             <button
               onClick={() => selfieInputRef.current.click()}
               disabled={verifying}
               className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full"
             >
-              {verifying ? "Uploading..." : "Upload Selfie"}
+              {verifying ? 'Uploading...' : 'Upload Selfie'}
             </button>
           </div>
-          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched </p>}
-          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched </p>}
+
+          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched</p>}
+          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched</p>}
+
           <input
             type="file"
             accept="image/*"
@@ -508,10 +539,8 @@ function compressImageForOCR(dataURL, quality = 0.9) {
             className="hidden"
           />
         </div>
-           
-    
       )}
-<canvas ref={canvasRef} className="hidden" />
+      <canvas ref={canvasRef} className="hidden" />
       <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileUpload} className="hidden" />
     </div>
   );
