@@ -507,9 +507,10 @@ function compressImageForOCR(dataURL, quality = 0.9) {
             className="hidden"
           />
         </div>
-      )}
+           
       <canvas ref={canvasRef} className="hidden" />
       <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileUpload} className="hidden" />
+      )}
     </div>
   );
 }
