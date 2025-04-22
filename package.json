@@ -15,7 +15,9 @@
       "tesseract.js-core": "^2.1.1",
       "openai": "^4.28.0",
       "serverless-http": "^2.7.0",
-      "face-api.js": "^0.22.2"
+      "next": "^13.4.0",
+        "opencv4nodejs": "^5.6.0",
+        "node-fetch": "^2.6.7"
     },
     "devDependencies": {
       "@types/react": "19.0.0",
@@ -27,7 +29,8 @@
       "start": "react-scripts start",
       "build": "react-scripts build",
       "test": "react-scripts test --env=jsdom",
-      "eject": "react-scripts eject"
+      "eject": "react-scripts eject",
+        "postinstall": "bash ./scripts/install-opencv.sh"
     },
     "browserslist": [">0.2%", "not dead", "not ie <= 11", "not op_mini all"]
   }
