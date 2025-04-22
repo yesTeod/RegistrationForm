@@ -14,6 +14,7 @@ export default function UserRegistrationForm() {
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -22,7 +23,6 @@ export default function UserRegistrationForm() {
   const containerRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
-  const faceapiRef = useRef(null);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -130,6 +130,41 @@ export default function UserRegistrationForm() {
     await handleFlip("verification", "right");
     await delay(200); // wait for DOM to update
     startCamera("user", faceVideoRef);
+  };
+
+// Face detection for UX
+  useEffect(() => {
+    let interval;
+    const detect = () => {
+      const video = faceVideoRef.current;
+      const canvas = faceCanvasRef.current;
+      if (!video || !canvas) return;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, 320, 240);
+    };
+    if (step === "verification" && cameraAvailable) {
+      interval = setInterval(detect, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [step, cameraAvailable]);
+
+  // AWS Rekognition call
+  const verifyFace = async () => {
+    setVerifying(true);
+    try {
+      const resp = await fetch('/api/verify-face', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idImage: photoFront, selfie: faceCanvasRef.current.toDataURL('image/png') }),
+      });
+      const { match } = await resp.json();
+      setFaceVerified(match);
+    } catch (err) {
+      console.error(err);
+      setFaceVerified(false);
+    } finally {
+      setVerifying(false);
+    }
   };
 
 // This helper function compresses the image dataURL for OCR.
@@ -407,41 +442,28 @@ function compressImageForOCR(dataURL, quality = 0.9) {
         </div>
       )}
 
-      {step === "verification" && (
+      {step === 'verification' && (
         <div className="text-center space-y-4">
-          <h2 className="text-xl font-semibold text-gray-800">
-            Face Verification
-          </h2>
-          <div className="w-[320px] h-[240px] mx-auto rounded-lg relative overflow-hidden">
-            <video
-            ref={faceVideoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{ width: 320, height: 240, border: '1px solid #ccc', borderRadius: 8 }}
-          />
-            <canvas
-              ref={faceCanvasRef}
-              width={320}
-              height={240}
-              className="top-0 left-0 w-full h-full z-20 opacity-40"
-            />
-            <div className="flex items-center justify-center pointer-events-none z-30">
-              <div className="w-40 h-52 rounded-full border-4 border-yellow-300 flex items-center justify-center">
-                <div className="w-32 h-44 rounded-full border-2 border-dashed border-yellow-400 opacity-70"></div>
-              </div>
-            </div>
+          <h2 className="text-xl font-semibold">Face Verification</h2>
+          <div className="relative w-80 h-60 mx-auto">
+            <video ref={faceVideoRef} autoPlay muted className="w-full h-full object-cover rounded" />
+            <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
           </div>
-          <p
-            className={`text-sm italic ${
-              faceDetected ? "text-green-600" : "text-gray-600"
-            }`}
+          <button
+            onClick={verifyFace}
+            disabled={verifying}
+            className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded-lg"
           >
-            {faceDetected
-              ? "Face detected"
-              : "Please align your face within the oval for verification."}
-          </p>
+            {verifying ? 'Verifying...' : 'Verify Face'}
+          </button>
+          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched ✔️</p>}
+          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched ❌</p>}
         </div>
+      )}
+
+      {/* hidden elements for capture */}
+      <canvas ref={canvasRef} className="hidden" />
+      <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={/* upload handler */} />
       )}
     </div>
   );
