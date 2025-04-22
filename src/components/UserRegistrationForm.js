@@ -23,6 +23,7 @@ export default function UserRegistrationForm() {
   const containerRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
+  const selfieInputRef = useRef(null);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
