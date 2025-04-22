@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import * as faceapi from 'face-api.js';
 
 export default function UserRegistrationForm() {
   const [step, setStep] = useState("form");
@@ -26,86 +25,6 @@ export default function UserRegistrationForm() {
   const faceapiRef = useRef(null);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Dynamically import face-api.js and load models remotely
-  useEffect(() => {
-    let isMounted = true;
-    async function initFaceApi() {
-      if (typeof window === 'undefined') return;
-      try {
-        // Load face-api.js dynamically
-        const faceapi = await import('face-api.js');
-        if (!isMounted) return;
-        faceapiRef.current = faceapi;
-
-        // Point to the GitHub-hosted model files
-        const MODEL_BASE_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_BASE_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_BASE_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_BASE_URL)
-        ]);
-      } catch (error) {
-        console.error('Unable to load face-api or models:', error);
-      }
-    }
-    initFaceApi();
-    return () => { isMounted = false; };
-  }, []);
-
-  // Compute face descriptor from an image element
-  async function computeDescriptor(imageEl) {
-    const faceapi = faceapiRef.current;
-    if (!faceapi) return null;
-    const detection = await faceapi
-      .detectSingleFace(imageEl)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-    return detection?.descriptor || null;
-  }
-
-  // Compare two descriptors; lower euclidean distance means more similar
-  function isMatch(desc1, desc2, threshold = 0.4) {
-    const faceapi = faceapiRef.current;
-    if (!faceapi) return false;
-    const distance = faceapi.euclideanDistance(desc1, desc2);
-    return distance < threshold;
-  }
-
-  // When on the verification step, run face matching
-  useEffect(() => {
-    if (step === 'verification' && photoFront && faceVideoRef.current) {
-      (async () => {
-        const faceapi = faceapiRef.current;
-        if (!faceapi) return;
-
-        // Decode the ID image offscreen
-        const idImage = new Image();
-        idImage.src = photoFront;
-        await idImage.decode();
-        const idDescriptor = await computeDescriptor(idImage);
-
-        // Capture a snapshot of the live video
-        const video = faceVideoRef.current;
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-        const liveImage = new Image();
-        liveImage.src = canvas.toDataURL();
-        await liveImage.decode();
-        const liveDescriptor = await computeDescriptor(liveImage);
-
-        // Compare descriptors
-        if (idDescriptor && liveDescriptor) {
-          setFaceVerified(isMatch(idDescriptor, liveDescriptor));
-        } else {
-          console.error('Face descriptors were not computed successfully', { idDescriptor, liveDescriptor });
-        }
-      })();
-    }
-  }, [step, photoFront]);
 
   // Handle file upload without compression.
   const handleFileUpload = async (event) => {
@@ -501,11 +420,6 @@ function compressImageForOCR(dataURL, quality = 0.9) {
             playsInline
             style={{ width: 320, height: 240, border: '1px solid #ccc', borderRadius: 8 }}
           />
-{faceVerified ? (
-            <p style={{ color: 'green', fontWeight: 'bold' }}>Face Matched ✔️</p>
-          ) : (
-            <p style={{ color: 'red', fontWeight: 'bold' }}>Face Not Matched ❌</p>
-          )}
             <canvas
               ref={faceCanvasRef}
               width={320}
