@@ -13,6 +13,7 @@ export default function UserRegistrationForm() {
   const [idDetails, setIdDetails] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [faceVerified, setFaceVerified] = useState(false);
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -23,6 +24,68 @@ export default function UserRegistrationForm() {
   const fileInputRef = useRef(null);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+useEffect(() => {
+    async function loadModels() {
+      const MODEL_URL = '/models';
+      await Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]);
+    }
+    loadModels();
+  }, []);
+
+  // Compute face descriptor from an image element
+  async function computeDescriptor(imageEl) {
+    const detection = await faceapi
+      .detectSingleFace(imageEl)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    return detection ? detection.descriptor : null;
+  }
+
+  // Compare two descriptors; lower euclidean distance means more similar
+  function isMatch(desc1, desc2, threshold = 0.4) {
+    const dist = faceapi.euclideanDistance(desc1, desc2);
+    return dist < threshold;
+  }
+
+  // Trigger verification when user submits ID and live stream is active
+  useEffect(() => {
+    if (step === 'verification' && photoFront && faceVideoRef.current) {
+      (async () => {
+        // Prepare ID image
+        const idImg = new Image();
+        idImg.src = photoFront;
+        await idImg.decode();
+        const idDesc = await computeDescriptor(idImg);
+
+        // Capture live frame from video
+        const canvas = document.createElement('canvas');
+        canvas.width = faceVideoRef.current.videoWidth;
+        canvas.height = faceVideoRef.current.videoHeight;
+        canvas.getContext('2d').drawImage(
+          faceVideoRef.current,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+        const liveImg = new Image();
+        liveImg.src = canvas.toDataURL();
+        await liveImg.decode();
+        const liveDesc = await computeDescriptor(liveImg);
+
+        // Check match
+        if (idDesc && liveDesc) {
+          const match = isMatch(idDesc, liveDesc);
+          setFaceVerified(match);
+        }
+      })();
+    }
+  }, [step, photoFront]);
 
   // Handle file upload without compression.
   const handleFileUpload = async (event) => {
@@ -411,12 +474,11 @@ function compressImageForOCR(dataURL, quality = 0.9) {
             Face Verification
           </h2>
           <div className="w-[320px] h-[240px] mx-auto rounded-lg relative overflow-hidden">
-            <video
-              ref={faceVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="top-0 left-0 w-full h-full object-cover rounded-lg z-10"
+            <video ref={faceVideoRef} autoPlay muted playsInline />
+          {faceVerified
+            ? <p style={{ color: 'green' }}>Face Matched ✔️</p>
+            : <p style={{ color: 'red' }}>Face Not Matched ❌</p>
+          }
             />
             <canvas
               ref={faceCanvasRef}
