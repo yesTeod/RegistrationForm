@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import * as faceapi from 'face-api.js';
+import faceapi from 'face-api.js';
 
 export default function UserRegistrationForm() {
   const [step, setStep] = useState("form");
