@@ -134,19 +134,23 @@ export default function UserRegistrationForm() {
 
 // Face detection for UX
   useEffect(() => {
-    let interval;
-    const detect = () => {
-      const video = faceVideoRef.current;
-      const canvas = faceCanvasRef.current;
-      if (!video || !canvas) return;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, 320, 240);
-    };
-    if (step === "verification" && cameraAvailable) {
-      interval = setInterval(detect, 1000);
+    let intv;
+    if (step === "verification") {
+      intv = setInterval(() => {
+        const video = faceVideoRef.current;
+        const canvas = faceCanvasRef.current;
+        if (!video || !canvas) return;
+        canvas.getContext("2d").drawImage(video, 0, 0, 320, 240);
+        const data = canvas.getContext("2d").getImageData(100, 80, 120, 120).data;
+        let bright = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if ((data[i] + data[i+1] + data[i+2]) / 3 > 60) bright++;
+        }
+        setFaceDetected(bright > 300);
+      }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [step, cameraAvailable]);
+    return () => clearInterval(intv);
+  }, [step]);
 
   // AWS Rekognition call
   const verifyFace = async () => {
@@ -165,6 +169,31 @@ export default function UserRegistrationForm() {
     } finally {
       setVerifying(false);
     }
+  };
+
+// --- Verify via upload ---
+  const handleSelfieUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setVerifying(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataURL = ev.target.result;
+      try {
+        const res = await fetch("/api/verify-face", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idImage: photoFront, selfie: dataURL }),
+        });
+        const { match } = await res.json();
+        setFaceVerified(match);
+      } catch {
+        setFaceVerified(false);
+      } finally {
+        setVerifying(false);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
 // This helper function compresses the image dataURL for OCR.
@@ -442,29 +471,45 @@ function compressImageForOCR(dataURL, quality = 0.9) {
         </div>
       )}
 
-      {step === 'verification' && (
+      {step === "verification" && (
         <div className="text-center space-y-4">
-          <h2 className="text-xl font-semibold">Face Verification</h2>
-          <div className="relative w-80 h-60 mx-auto">
-            <video ref={faceVideoRef} autoPlay muted className="w-full h-full object-cover rounded" />
+          <h2 className="text-xl font-semibold text-gray-800">Face Verification</h2>
+          <div className="mx-auto w-80 h-60 relative overflow-hidden rounded-lg border">
+            <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
             <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
           </div>
-          <button
-            onClick={verifyFace}
-            disabled={verifying}
-            className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded-lg"
-          >
-            {verifying ? 'Verifying...' : 'Verify Face'}
-          </button>
-          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched ✔️</p>}
-          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched ❌</p>}
+          <p className={`text-sm italic ${faceDetected ? "text-green-600" : "text-gray-600"}`}>
+            {faceDetected ? "Face detected" : "Please align your face within the frame."}
+          </p>
+          <div className="flex justify-center space-x-4">
+            <button
+              onClick={verifyFace}
+              disabled={!faceDetected || verifying}
+              className="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black rounded-full"
+            >
+              {verifying ? "Verifying..." : "Verify Face"}
+            </button>
+            <button
+              onClick={() => selfieInputRef.current.click()}
+              disabled={verifying}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full"
+            >
+              {verifying ? "Uploading..." : "Upload Selfie"}
+            </button>
+          </div>
+          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched </p>}
+          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched </p>}
+          <input
+            type="file"
+            accept="image/*"
+            ref={selfieInputRef}
+            onChange={handleSelfieUpload}
+            className="hidden"
+          />
         </div>
       )}
-
-      {/* hidden elements for capture */}
       <canvas ref={canvasRef} className="hidden" />
-      <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={/* upload handler */} />
-      )}
+      <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileUpload} className="hidden" />
     </div>
   );
 }
