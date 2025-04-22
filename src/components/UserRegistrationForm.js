@@ -15,7 +15,6 @@ export default function UserRegistrationForm() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [faceDetected, setFaceDetected] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [faceError, setFaceError] = useState(null);
 
