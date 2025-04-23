@@ -13,10 +13,12 @@ export default function UserRegistrationForm() {
   const [idDetails, setIdDetails] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [faceVerified, setFaceVerified] = useState(false);
+  const [faceVerified, setFaceVerified] = useState(null); // Changed to null for initial state
   const [verifying, setVerifying] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [faceError, setFaceError] = useState(null);
+  const [verificationAttempts, setVerificationAttempts] = useState(0); // Track attempts
+  const [showRetryOptions, setShowRetryOptions] = useState(false); // Control retry options visibility
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -133,9 +135,13 @@ export default function UserRegistrationForm() {
     await handleFlip("verification", "right");
     await delay(200); // wait for DOM to update
     startCamera("user", faceVideoRef);
+    // Reset verification state when starting fresh
+    setFaceVerified(null);
+    setVerificationAttempts(0);
+    setShowRetryOptions(false);
   };
 
-const detectFaceOnServer = async (dataURL) => {
+  const detectFaceOnServer = async (dataURL) => {
     setDetecting(true);
     setFaceError(null);
     try {
@@ -176,6 +182,7 @@ const detectFaceOnServer = async (dataURL) => {
   // AWS Rekognition call
   const verifyFace = async () => {
     setVerifying(true);
+    setShowRetryOptions(false);
     try {
       const resp = await fetch('/api/verify-face', {
         method: 'POST',
@@ -184,19 +191,34 @@ const detectFaceOnServer = async (dataURL) => {
       });
       const { match } = await resp.json();
       setFaceVerified(match);
+      
+      // Show retry options if verification fails
+      if (!match) {
+        setVerificationAttempts(prev => prev + 1);
+        setShowRetryOptions(true);
+      }
     } catch (err) {
       console.error(err);
       setFaceVerified(false);
+      setVerificationAttempts(prev => prev + 1);
+      setShowRetryOptions(true);
     } finally {
       setVerifying(false);
     }
   };
 
-// --- Verify via upload ---
+  // Reset verification state for retry
+  const handleRetryVerification = () => {
+    setFaceVerified(null);
+    setShowRetryOptions(false);
+  };
+
+  // --- Verify via upload ---
   const handleSelfieUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setVerifying(true);
+    setShowRetryOptions(false);
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const dataURL = ev.target.result;
@@ -208,8 +230,16 @@ const detectFaceOnServer = async (dataURL) => {
         });
         const { match } = await res.json();
         setFaceVerified(match);
+        
+        // Show retry options if verification fails
+        if (!match) {
+          setVerificationAttempts(prev => prev + 1);
+          setShowRetryOptions(true);
+        }
       } catch {
         setFaceVerified(false);
+        setVerificationAttempts(prev => prev + 1);
+        setShowRetryOptions(true);
       } finally {
         setVerifying(false);
       }
@@ -217,69 +247,67 @@ const detectFaceOnServer = async (dataURL) => {
     reader.readAsDataURL(file);
   };
 
-// This helper function compresses the image dataURL for OCR.
-function compressImageForOCR(dataURL, quality = 0.9) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = dataURL;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      // Optionally, you can also reduce dimensions here if needed.
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      // Convert image to JPEG with the specified quality.
-      const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
-      // Estimate file size in KB (base64 encoding approximates to 3/4 the length in bytes)
-      const fileSizeKb = Math.round((compressedDataURL.length * (3 / 4)) / 1024);
-      if (fileSizeKb > 1024 && quality > 0.1) {
-        // Reduce quality further if file size is still too high.
-        compressImageForOCR(dataURL, quality - 0.1).then(resolve);
-      } else {
-        resolve(compressedDataURL);
-      }
-    };
-  });
-}
-
+  // This helper function compresses the image dataURL for OCR.
+  function compressImageForOCR(dataURL, quality = 0.9) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = dataURL;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        // Optionally, you can also reduce dimensions here if needed.
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        // Convert image to JPEG with the specified quality.
+        const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
+        // Estimate file size in KB (base64 encoding approximates to 3/4 the length in bytes)
+        const fileSizeKb = Math.round((compressedDataURL.length * (3 / 4)) / 1024);
+        if (fileSizeKb > 1024 && quality > 0.1) {
+          // Reduce quality further if file size is still too high.
+          compressImageForOCR(dataURL, quality - 0.1).then(resolve);
+        } else {
+          resolve(compressedDataURL);
+        }
+      };
+    });
+  }
 
   async function extractIdDetails(imageData) {
-  try {
-    setIsExtracting(true);
+    try {
+      setIsExtracting(true);
 
-    // Estimate file size and compress if necessary.
-    const fileSizeKb = Math.round((imageData.length * (3 / 4)) / 1024);
-    let processedImage = imageData;
-    if (fileSizeKb > 1024) {
-      processedImage = await compressImageForOCR(imageData);
-    }
+      // Estimate file size and compress if necessary.
+      const fileSizeKb = Math.round((imageData.length * (3 / 4)) / 1024);
+      let processedImage = imageData;
+      if (fileSizeKb > 1024) {
+        processedImage = await compressImageForOCR(imageData);
+      }
 
-    const response = await fetch("/api/extract-id", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: processedImage }),
-    });
-    if (!response.ok) {
-      throw new Error("OCR request failed");
+      const response = await fetch("/api/extract-id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: processedImage }),
+      });
+      if (!response.ok) {
+        throw new Error("OCR request failed");
+      }
+      const data = await response.json();
+      if (data.error) {
+        console.warn("API returned an error:", data.error);
+      }
+      return data;
+    } catch (error) {
+      console.error("Error extracting ID details:", error);
+      return {
+        name: "Not found",
+        idNumber: "Not found",
+        expiry: "Not found",
+      };
+    } finally {
+      setIsExtracting(false);
     }
-    const data = await response.json();
-    if (data.error) {
-      console.warn("API returned an error:", data.error);
-    }
-    return data;
-  } catch (error) {
-    console.error("Error extracting ID details:", error);
-    return {
-      name: "Not found",
-      idNumber: "Not found",
-      expiry: "Not found",
-    };
-  } finally {
-    setIsExtracting(false);
   }
-}
-
 
   // Trigger OCR extraction when registration is completed.
   useEffect(() => {
@@ -345,6 +373,133 @@ function compressImageForOCR(dataURL, quality = 0.9) {
     }
     return () => clearInterval(interval);
   }, [step, cameraAvailable]);
+
+  const renderVerificationStepContent = () => {
+    return (
+      <div className="text-center space-y-4">
+        <h2 className="text-xl font-semibold">
+          Face Verification
+        </h2>
+
+        <div className="mx-auto w-80 h-60 relative overflow-hidden rounded-lg border">
+          {/* Display guide overlay if verification is active */}
+          {faceVerified === null && (
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="w-48 h-48 border-2 border-dashed border-yellow-400 rounded-full mx-auto mt-4 opacity-60"></div>
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-yellow-400 rounded-full opacity-60"></div>
+            </div>
+          )}
+          <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+          <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
+        </div>
+
+        {/* Status indicators */}
+        {faceVerified === null && (
+          <div className="text-sm">
+            {detecting && <p className="text-blue-600">Detecting face...</p>}
+            {!detecting && faceDetected && <p className="text-green-600">Face detected - Please look directly at camera</p>}
+            {!detecting && !faceDetected && <p className="text-amber-600">No face detected, please align your face within the frame</p>}
+            {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
+          </div>
+        )}
+
+        {/* Verification success message */}
+        {faceVerified === true && (
+          <div className="bg-green-100 p-4 rounded-lg border border-green-300">
+            <p className="text-green-700 font-medium text-lg">Identity Verified</p>
+            <p className="text-green-600 text-sm">Your face has been successfully matched with your ID.</p>
+            <button 
+              onClick={() => handleFlip("success", "right")}
+              className="mt-3 px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow transition-colors"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
+        {/* Verification failure message with guidance */}
+        {faceVerified === false && (
+          <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+            <p className="text-red-700 font-medium text-lg">Verification Failed</p>
+            <p className="text-red-600 text-sm mb-2">
+              We couldn't match your face with the ID provided.
+            </p>
+            
+            {showRetryOptions && (
+              <div className="space-y-3 mt-2">
+                <p className="text-gray-700 text-sm">Please try again with these tips:</p>
+                <ul className="text-xs text-left list-disc pl-5 text-gray-600">
+                  <li>Ensure good lighting on your face</li>
+                  <li>Remove glasses or face coverings</li>
+                  <li>Look directly at the camera</li>
+                  <li>Avoid shadows on your face</li>
+                </ul>
+                
+                <div className="flex flex-col space-y-2 mt-3">
+                  <button
+                    onClick={handleRetryVerification}
+                    className="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow"
+                  >
+                    Try Again
+                  </button>
+                  
+                  {verificationAttempts >= 2 && (
+                    <button
+                      onClick={() => handleFlip("completed", "left")}
+                      className="w-full px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg shadow"
+                    >
+                      Back to ID Verification
+                    </button>
+                  )}
+                  
+                  {verificationAttempts >= 3 && (
+                    <button
+                      onClick={() => window.location.href = "/contact-support"}
+                      className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow"
+                    >
+                      Contact Support
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Action buttons - only show when not displaying result or retry options */}
+        {faceVerified === null && (
+          <div className="flex justify-center space-x-4">
+            <button
+              onClick={verifyFace}
+              disabled={!faceDetected || verifying}
+              className={`px-4 py-2 rounded-full transition-colors ${
+                faceDetected && !verifying
+                  ? "bg-yellow-400 hover:bg-yellow-300 text-black"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              {verifying ? 'Verifying...' : 'Verify Face'}
+            </button>
+            <button
+              onClick={() => selfieInputRef.current.click()}
+              disabled={verifying}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full"
+            >
+              {verifying ? 'Uploading...' : 'Upload Selfie'}
+            </button>
+          </div>
+        )}
+
+        <input
+          type="file"
+          accept="image/*"
+          ref={selfieInputRef}
+          onChange={handleSelfieUpload}
+          className="hidden"
+        />
+      </div>
+    );
+  };
 
   return (
     <div
@@ -492,53 +647,26 @@ function compressImageForOCR(dataURL, quality = 0.9) {
         </div>
       )}
 
-      {step === "verification" && (
-        <div className="text-center space-y-4">
-          <h2 className="text-xl font-semibold">
-            Face Verification
+      {step === "verification" && renderVerificationStepContent()}
+
+      {step === "success" && (
+        <div className="text-center space-y-6">
+          <div className="text-6xl mb-4">✅</div>
+          <h2 className="text-2xl font-semibold text-gray-800">
+            Registration Complete!
           </h2>
-
-          <div className="mx-auto w-80 h-60 relative overflow-hidden rounded-lg border">
-            <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-            <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
-          </div>
-
-          <p className="text-sm italic">
-            {detecting && 'Detecting face...'}
-            {!detecting && faceDetected && 'Face detected'}
-            {!detecting && !faceDetected && 'No face detected, please align your face within the frame.'}
+          <p className="text-gray-600">
+            Your identity has been verified successfully.
           </p>
-          {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
-
-          <div className="flex justify-center space-x-4">
-            <button
-              onClick={verifyFace}
-              disabled={!faceDetected || verifying}
-              className="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black rounded-full"
-            >
-              {verifying ? 'Verifying...' : 'Verify Face'}
-            </button>
-            <button
-              onClick={() => selfieInputRef.current.click()}
-              disabled={verifying}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full"
-            >
-              {verifying ? 'Uploading...' : 'Upload Selfie'}
-            </button>
-          </div>
-
-          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched</p>}
-          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched</p>}
-
-          <input
-            type="file"
-            accept="image/*"
-            ref={selfieInputRef}
-            onChange={handleSelfieUpload}
-            className="hidden"
-          />
+          <button
+            onClick={() => window.location.href = "/dashboard"}
+            className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-md"
+          >
+            Go to Dashboard
+          </button>
         </div>
       )}
+      
       <canvas ref={canvasRef} className="hidden" />
       <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileUpload} className="hidden" />
     </div>
