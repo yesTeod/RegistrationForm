@@ -13,12 +13,13 @@ export default function UserRegistrationForm() {
   const [idDetails, setIdDetails] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [faceVerified, setFaceVerified] = useState(null); // Changed to null for initial state
+  const [faceVerified, setFaceVerified] = useState(null);
   const [verifying, setVerifying] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [faceError, setFaceError] = useState(null);
-  const [verificationAttempts, setVerificationAttempts] = useState(0); // Track attempts
-  const [showRetryOptions, setShowRetryOptions] = useState(false); // Control retry options visibility
+  const [verificationAttempts, setVerificationAttempts] = useState(0);
+  const [showRetryOptions, setShowRetryOptions] = useState(false);
+  const [faceDetectionPaused, setFaceDetectionPaused] = useState(false);
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -28,6 +29,7 @@ export default function UserRegistrationForm() {
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
   const selfieInputRef = useRef(null);
+  const lastDetectionTime = useRef(0);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -134,16 +136,27 @@ export default function UserRegistrationForm() {
     await delay(300); // wait for camera to stop cleanly
     await handleFlip("verification", "right");
     await delay(200); // wait for DOM to update
-    startCamera("user", faceVideoRef);
-    // Reset verification state when starting fresh
     setFaceVerified(null);
     setVerificationAttempts(0);
     setShowRetryOptions(false);
+    setFaceDetectionPaused(false);
+    setFaceDetected(false);
+    lastDetectionTime.current = 0;
+    startCamera("user", faceVideoRef);
   };
 
+  // Face detection with rate limiting
   const detectFaceOnServer = async (dataURL) => {
+    // Check if throttling needed - only call API every 3 seconds
+    const now = Date.now();
+    if (now - lastDetectionTime.current < 3000 || faceDetectionPaused) {
+      return; // Skip this detection cycle
+    }
+    
     setDetecting(true);
     setFaceError(null);
+    lastDetectionTime.current = now;
+    
     try {
       const res = await fetch('/api/detect-face', {
         method: 'POST',
@@ -165,40 +178,58 @@ export default function UserRegistrationForm() {
     }
   };
 
-  // On verification step, poll for face detection
+  // On verification step, poll for face detection with rate limiting
   useEffect(() => {
     let interval;
-    if (step === 'verification') {
+    if (step === 'verification' && !faceDetectionPaused) {
       interval = setInterval(() => {
         if (faceCanvasRef.current) {
-          const dataURL = faceCanvasRef.current.toDataURL('image/png');
-          detectFaceOnServer(dataURL);
+          const canvas = faceCanvasRef.current;
+          const context = canvas.getContext("2d");
+          // Make sure video is ready
+          if (faceVideoRef.current && faceVideoRef.current.readyState >= 2) {
+            context.drawImage(faceVideoRef.current, 0, 0, 320, 240);
+            const dataURL = canvas.toDataURL('image/png');
+            detectFaceOnServer(dataURL);
+          }
         }
-      }, 1500);
+      }, 1000); // Check every second, but API calls are throttled internally
     }
     return () => clearInterval(interval);
-  }, [step]);
+  }, [step, faceDetectionPaused]);
 
   // AWS Rekognition call
   const verifyFace = async () => {
     setVerifying(true);
     setShowRetryOptions(false);
+    setFaceDetectionPaused(true); // Pause detection during verification
+    
     try {
       const resp = await fetch('/api/verify-face', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idImage: photoFront, selfie: faceCanvasRef.current.toDataURL('image/png') }),
       });
-      const { match } = await resp.json();
-      setFaceVerified(match);
       
-      // Show retry options if verification fails
-      if (!match) {
+      if (!resp.ok) {
+        // Handle HTTP error responses (e.g., 400 Bad Request)
+        const errorData = await resp.json().catch(() => ({ error: 'Unknown error' }));
+        console.error("Face verification failed:", resp.status, errorData);
+        setFaceVerified(false);
+        setVerificationAttempts(prev => prev + 1);
+        setShowRetryOptions(true);
+        return;
+      }
+      
+      const data = await resp.json();
+      setFaceVerified(data.match);
+      
+      if (!data.match) {
         setVerificationAttempts(prev => prev + 1);
         setShowRetryOptions(true);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Face verification error:", err);
       setFaceVerified(false);
       setVerificationAttempts(prev => prev + 1);
       setShowRetryOptions(true);
@@ -211,6 +242,8 @@ export default function UserRegistrationForm() {
   const handleRetryVerification = () => {
     setFaceVerified(null);
     setShowRetryOptions(false);
+    setFaceDetectionPaused(false);
+    lastDetectionTime.current = 0; // Reset timer to allow immediate detection
   };
 
   // --- Verify via upload ---
@@ -219,6 +252,8 @@ export default function UserRegistrationForm() {
     if (!file) return;
     setVerifying(true);
     setShowRetryOptions(false);
+    setFaceDetectionPaused(true); // Pause detection during verification
+    
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const dataURL = ev.target.result;
@@ -228,15 +263,26 @@ export default function UserRegistrationForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ idImage: photoFront, selfie: dataURL }),
         });
-        const { match } = await res.json();
-        setFaceVerified(match);
         
-        // Show retry options if verification fails
-        if (!match) {
+        if (!res.ok) {
+          // Handle HTTP error responses
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error("Face verification failed:", res.status, errorData);
+          setFaceVerified(false);
+          setVerificationAttempts(prev => prev + 1);
+          setShowRetryOptions(true);
+          return;
+        }
+        
+        const data = await res.json();
+        setFaceVerified(data.match);
+        
+        if (!data.match) {
           setVerificationAttempts(prev => prev + 1);
           setShowRetryOptions(true);
         }
-      } catch {
+      } catch (err) {
+        console.error("Face verification error:", err);
         setFaceVerified(false);
         setVerificationAttempts(prev => prev + 1);
         setShowRetryOptions(true);
@@ -246,6 +292,16 @@ export default function UserRegistrationForm() {
     };
     reader.readAsDataURL(file);
   };
+
+  // Return to completed step or go to success if verification is successful
+  const handleVerificationComplete = () => {
+    if (faceVerified) {
+      handleFlip("success", "right");
+    } else {
+      // This shouldn't typically happen as the button is only shown in success case
+      handleFlip("completed", "left");
+    }
+  }
 
   // This helper function compresses the image dataURL for OCR.
   function compressImageForOCR(dataURL, quality = 0.9) {
@@ -346,33 +402,12 @@ export default function UserRegistrationForm() {
     };
   }, [isFlipping]);
 
+  // Clean up when component unmounts
   useEffect(() => {
-    let interval;
-    const tryStartDetection = () => {
-      if (!faceVideoRef.current || !faceCanvasRef.current) return;
-      const context = faceCanvasRef.current.getContext("2d");
-      interval = setInterval(() => {
-        if (!faceVideoRef.current || !faceCanvasRef.current) return;
-        context.drawImage(faceVideoRef.current, 0, 0, 320, 240);
-        const imageData = context.getImageData(100, 80, 120, 120).data;
-        let brightPixels = 0;
-        for (let i = 0; i < imageData.length; i += 4) {
-          const avg = (imageData[i] + imageData[i + 1] + imageData[i + 2]) / 3;
-          if (avg > 60) brightPixels++;
-        }
-        setFaceDetected(brightPixels > 300);
-      }, 1000);
+    return () => {
+      stopCamera();
     };
-    if (step === "verification" && cameraAvailable) {
-      const video = faceVideoRef.current;
-      if (video && video.readyState >= 2) {
-        tryStartDetection();
-      } else if (video) {
-        video.onloadedmetadata = tryStartDetection;
-      }
-    }
-    return () => clearInterval(interval);
-  }, [step, cameraAvailable]);
+  }, []);
 
   const renderVerificationStepContent = () => {
     return (
@@ -409,7 +444,7 @@ export default function UserRegistrationForm() {
             <p className="text-green-700 font-medium text-lg">Identity Verified</p>
             <p className="text-green-600 text-sm">Your face has been successfully matched with your ID.</p>
             <button 
-              onClick={() => handleFlip("success", "right")}
+              onClick={handleVerificationComplete}
               className="mt-3 px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow transition-colors"
             >
               Continue
