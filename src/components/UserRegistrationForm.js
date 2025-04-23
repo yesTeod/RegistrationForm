@@ -13,7 +13,7 @@ export default function UserRegistrationForm() {
   const [idDetails, setIdDetails] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [faceVerified, setFaceVerified] = useState(null);
+  const [faceVerified, setFaceVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [faceError, setFaceError] = useState(null);
@@ -158,6 +158,20 @@ const detectFaceOnServer = async (dataURL) => {
       setDetecting(false);
     }
   };
+
+  // On verification step, poll for face detection
+  useEffect(() => {
+    let interval;
+    if (step === 'verification') {
+      interval = setInterval(() => {
+        if (faceCanvasRef.current) {
+          const dataURL = faceCanvasRef.current.toDataURL('image/png');
+          detectFaceOnServer(dataURL);
+        }
+      }, 1500);
+    }
+    return () => clearInterval(interval);
+  }, [step]);
 
   // AWS Rekognition call
   const verifyFace = async () => {
@@ -305,55 +319,32 @@ function compressImageForOCR(dataURL, quality = 0.9) {
   }, [isFlipping]);
 
   useEffect(() => {
-    let intervalId;
-  
-    // only start polling when we’re on the verification step
-    if (step === "verification") {
-      setDetecting(true);
+    let interval;
+    const tryStartDetection = () => {
+      if (!faceVideoRef.current || !faceCanvasRef.current) return;
+      const context = faceCanvasRef.current.getContext("2d");
+      interval = setInterval(() => {
+        if (!faceVideoRef.current || !faceCanvasRef.current) return;
+        context.drawImage(faceVideoRef.current, 0, 0, 320, 240);
+        const imageData = context.getImageData(100, 80, 120, 120).data;
+        let brightPixels = 0;
+        for (let i = 0; i < imageData.length; i += 4) {
+          const avg = (imageData[i] + imageData[i + 1] + imageData[i + 2]) / 3;
+          if (avg > 60) brightPixels++;
+        }
+        setFaceDetected(brightPixels > 300);
+      }, 1000);
+    };
+    if (step === "verification" && cameraAvailable) {
       const video = faceVideoRef.current;
-      const canvas = faceCanvasRef.current;
-      const ctx = canvas?.getContext("2d");
-  
-      // once video is ready, start polling
-      const startPolling = () => {
-        intervalId = setInterval(async () => {
-          if (!video || !ctx) return;
-  
-          // grab a small crop around your face‐guides
-          ctx.drawImage(video, 0, 0, 320, 240);
-          const data = ctx.getImageData(100, 80, 120, 120).data;
-  
-          // count “bright” pixels as before
-          let bright = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-            if (avg > 60) bright++;
-          }
-  
-          // if that threshold is hit, stop polling and verify
-          if (bright > 300) {
-            clearInterval(intervalId);
-            setDetecting(false);
-            setFaceDetected(true);
-           // kick off the verify call immediately
-            setVerifying(true);
-            await verifyFace();
-          }
-        }, 1000);
-      };
-  
       if (video && video.readyState >= 2) {
-        startPolling();
+        tryStartDetection();
       } else if (video) {
-        video.onloadedmetadata = startPolling;
+        video.onloadedmetadata = tryStartDetection;
       }
     }
-      return () => {
-            clearInterval(intervalId);
-            setDetecting(false);
-          };
-  }, [step]);
-  
+    return () => clearInterval(interval);
+  }, [step, cameraAvailable]);
 
   return (
     <div
@@ -513,10 +504,9 @@ function compressImageForOCR(dataURL, quality = 0.9) {
           </div>
 
           <p className="text-sm italic">
-            { !faceDetected && !detecting && !verifying && 'No face detected, please align your face within the frame.' }
-            { detecting && 'Detecting face…' }
-            { faceDetected && !verifying && 'Face detected — verifying now…' }
-            { verifying && 'Verifying face…' }
+            {detecting && 'Detecting face...'}
+            {!detecting && faceDetected && 'Face detected'}
+            {!detecting && !faceDetected && 'No face detected, please align your face within the frame.'}
           </p>
           {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
 
@@ -537,13 +527,9 @@ function compressImageForOCR(dataURL, quality = 0.9) {
             </button>
           </div>
 
-          {faceVerified !== null && (
-            <p
-              className={`font-bold ${faceVerified ? 'text-green-600' : 'text-red-600'}`}
-            >
-              {faceVerified ? 'Face Matched' : 'Face Not Matched'}
-            </p>
-          )}
+          {faceVerified === true && <p className="text-green-600 font-bold">Face Matched</p>}
+          {faceVerified === false && <p className="text-red-600 font-bold">Face Not Matched</p>}
+
           <input
             type="file"
             accept="image/*"
