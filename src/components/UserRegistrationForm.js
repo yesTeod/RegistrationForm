@@ -28,7 +28,7 @@ export default function UserRegistrationForm() {
       const res = await fetch('/api/sumsub-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ externalUserId: uid, levelName: 'id-and-liveness', ttlInSecs: 600 }),
+        body: JSON.stringify({ externalUserId: uid, levelName: 'basic-kyc-level', ttlInSecs: 600 }),
       });
 
       if (!res.ok) throw new Error('Failed to fetch verification token');
@@ -72,8 +72,11 @@ export default function UserRegistrationForm() {
           <button
             onClick={handleFormSubmit}
             disabled={isLoading}
-            className={`w-full py-2 rounded-xl shadow-md transition-colors \$
-              ${isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-yellow-400 hover:bg-yellow-300 text-black'}`
+            className={`w-full py-2 rounded-xl shadow-md transition-colors ${
+              isLoading
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-yellow-400 hover:bg-yellow-300 text-black'
+            }`}
           >
             {isLoading ? 'Starting...' : 'Continue to Verification'}
           </button>
