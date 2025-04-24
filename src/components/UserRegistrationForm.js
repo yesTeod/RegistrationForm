@@ -20,11 +20,6 @@ export default function UserRegistrationForm() {
   const [verificationAttempts, setVerificationAttempts] = useState(0);
   const [showRetryOptions, setShowRetryOptions] = useState(false);
   const [faceDetectionPaused, setFaceDetectionPaused] = useState(false);
-  // Live verification state
-  const [liveVerificationEnabled, setLiveVerificationEnabled] = useState(true);
-  const [verificationProgress, setVerificationProgress] = useState(0);
-  const [lastVerificationTime, setLastVerificationTime] = useState(0);
-  const [consecutiveMatches, setConsecutiveMatches] = useState(0);
 
   const videoRef = useRef(null);
   const faceVideoRef = useRef(null);
@@ -35,7 +30,6 @@ export default function UserRegistrationForm() {
   const fileInputRef = useRef(null);
   const selfieInputRef = useRef(null);
   const lastDetectionTime = useRef(0);
-  const verificationTimeoutRef = useRef(null);
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -142,30 +136,23 @@ export default function UserRegistrationForm() {
     await delay(300); // wait for camera to stop cleanly
     await handleFlip("verification", "right");
     await delay(200); // wait for DOM to update
-    
-    // Reset all verification states
     setFaceVerified(null);
     setVerificationAttempts(0);
     setShowRetryOptions(false);
     setFaceDetectionPaused(false);
     setFaceDetected(false);
-    setConsecutiveMatches(0);
-    setVerificationProgress(0);
     lastDetectionTime.current = 0;
-    setLastVerificationTime(0);
-    
-    // Start user-facing camera for face verification
     startCamera("user", faceVideoRef);
   };
 
   // Face detection with rate limiting
   const detectFaceOnServer = async (dataURL) => {
-    // Check if throttling needed - only call API every 2 seconds
+    // Check if throttling needed - only call API every 3 seconds
     const now = Date.now();
-    if (now - lastDetectionTime.current < 2000 || faceDetectionPaused || verifying) {
-      return; // Skip this detection cycle if verifying or paused
+    if (now - lastDetectionTime.current < 3000 || faceDetectionPaused) {
+      return; // Skip this detection cycle
     }
-  
+    
     setDetecting(true);
     setFaceError(null);
     lastDetectionTime.current = now;
@@ -181,14 +168,7 @@ export default function UserRegistrationForm() {
         setFaceDetected(false);
         setFaceError(json.error || 'Detection error');
       } else {
-        const wasDetected = faceDetected;
         setFaceDetected(json.faceDetected);
-        
-        // If face is detected and live verification is enabled, trigger verification immediately
-        if (json.faceDetected && liveVerificationEnabled && !faceDetectionPaused) {
-          // Pass the dataURL directly for verification
-          attemptLiveVerification(dataURL);
-        }
       }
     } catch (e) {
       setFaceDetected(false);
@@ -198,134 +178,37 @@ export default function UserRegistrationForm() {
     }
   };
 
-  // Live verification process
-  const attemptLiveVerification = async (dataURL) => {
-    const now = Date.now();
-    // Only verify every 2 seconds to avoid too many API calls
-    if (now - lastVerificationTime < 2000 || verifying || !liveVerificationEnabled || !photoFront) {
-      return;
-    }
-    
-    setVerifying(true);
-    setFaceDetectionPaused(true);
-    
-    try {
-      console.log("Attempting live verification...");
-      const resp = await fetch('/api/verify-face', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idImage: photoFront, selfie: dataURL }),
-      });
-      
-      if (!resp.ok) {
-        console.error("Live face verification failed:", resp.status);
-        setConsecutiveMatches(0);
-        setVerificationProgress(prev => Math.max(0, prev - 20)); // Decrease progress
-        return;
-      }
-      
-      const data = await resp.json();
-      console.log("Verification response:", data);
-      
-      // Update state based on verification result
-      if (data.match) {
-        console.log("Match detected");
-        // Increase consecutive matches
-        setConsecutiveMatches(prev => {
-          const newCount = prev + 1;
-          console.log("Consecutive matches:", newCount);
-          
-          // If we reached threshold, mark as verified
-          if (newCount >= 3) {
-            setFaceVerified(true);
-            setFaceDetectionPaused(true);
-          }
-          
-          return newCount;
-        });
-        
-        // Increase progress
-        setVerificationProgress(prev => {
-          const newProgress = Math.min(100, prev + 25);
-          
-          // If we reached 100%, mark as verified
-          if (newProgress >= 100) {
-            setFaceVerified(true);
-            setFaceDetectionPaused(true);
-          }
-          
-          return newProgress;
-        });
-      } else {
-        // Reset consecutive matches and decrease progress
-        setConsecutiveMatches(0);
-        setVerificationProgress(prev => Math.max(0, prev - 10));
-      }
-    } catch (err) {
-      console.error("Live face verification error:", err);
-      setConsecutiveMatches(0);
-      setVerificationProgress(prev => Math.max(0, prev - 10));
-    } finally {
-      setVerifying(false);
-      setFaceDetectionPaused(false); // Resume detection after verification completes
-    }
-  };
-
   // On verification step, poll for face detection with rate limiting
   useEffect(() => {
     let interval;
-    
     if (step === 'verification' && !faceDetectionPaused) {
       interval = setInterval(() => {
-        if (faceCanvasRef.current && faceVideoRef.current && faceVideoRef.current.readyState >= 2) {
+        if (faceCanvasRef.current) {
           const canvas = faceCanvasRef.current;
           const context = canvas.getContext("2d");
-          const video = faceVideoRef.current;
-          
-          // Ensure canvas dimensions match video
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 240;
-          
-          // Draw the current video frame to canvas
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
-          
-          // Get image data for detection/verification
-          const dataURL = canvas.toDataURL('image/png');
-          
-          // Send for face detection
-          detectFaceOnServer(dataURL);
+          // Make sure video is ready
+          if (faceVideoRef.current && faceVideoRef.current.readyState >= 2) {
+            context.drawImage(faceVideoRef.current, 0, 0, 320, 240);
+            const dataURL = canvas.toDataURL('image/png');
+            detectFaceOnServer(dataURL);
+          }
         }
       }, 1000); // Check every second, but API calls are throttled internally
     }
-    
     return () => clearInterval(interval);
-  }, [step, faceDetectionPaused, faceDetected, liveVerificationEnabled]);
-  
-  // Check verification progress and update status
-  useEffect(() => {
-    if (consecutiveMatches >= 3 || verificationProgress >= 100) {
-      setFaceVerified(true);
-      setFaceDetectionPaused(true);
-    }
-  }, [consecutiveMatches, verificationProgress]);
+  }, [step, faceDetectionPaused]);
 
-  // Manual verification function (fallback)
+  // AWS Rekognition call
   const verifyFace = async () => {
     setVerifying(true);
     setShowRetryOptions(false);
     setFaceDetectionPaused(true); // Pause detection during verification
     
     try {
-      if (!faceCanvasRef.current) {
-        throw new Error("Camera not initialized");
-      }
-      
-      const selfieDataURL = faceCanvasRef.current.toDataURL('image/png');
-      
       const resp = await fetch('/api/verify-face', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idImage: photoFront, selfie: selfieDataURL }),
+        body: JSON.stringify({ idImage: photoFront, selfie: faceCanvasRef.current.toDataURL('image/png') }),
       });
       
       if (!resp.ok) {
@@ -360,10 +243,7 @@ export default function UserRegistrationForm() {
     setFaceVerified(null);
     setShowRetryOptions(false);
     setFaceDetectionPaused(false);
-    setConsecutiveMatches(0);
-    setVerificationProgress(0);
     lastDetectionTime.current = 0; // Reset timer to allow immediate detection
-    setLastVerificationTime(0);
   };
 
   // --- Verify via upload ---
@@ -526,9 +406,6 @@ export default function UserRegistrationForm() {
   useEffect(() => {
     return () => {
       stopCamera();
-      if (verificationTimeoutRef.current) {
-        clearTimeout(verificationTimeoutRef.current);
-      }
     };
   }, []);
 
@@ -549,50 +426,13 @@ export default function UserRegistrationForm() {
           )}
           <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
           <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
-          
-          {/* Progress ring overlay for live verification */}
-          {faceVerified === null && faceDetected && verificationProgress > 0 && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <svg className="w-48 h-48" viewBox="0 0 100 100">
-                <circle 
-                  cx="50" cy="50" r="45" 
-                  fill="none" 
-                  stroke="#EEE" 
-                  strokeWidth="5" 
-                  opacity="0.3"
-                />
-                <circle 
-                  cx="50" cy="50" r="45" 
-                  fill="none" 
-                  stroke="#10B981" 
-                  strokeWidth="5" 
-                  strokeDasharray="283" 
-                  strokeDashoffset={283 - (283 * verificationProgress / 100)}
-                  transform="rotate(-90 50 50)"
-                  strokeLinecap="round"
-                  className="transition-all duration-300"
-                />
-                <text 
-                  x="50" y="50" 
-                  textAnchor="middle" 
-                  dy=".3em" 
-                  fill="#10B981" 
-                  fontSize="18"
-                  fontWeight="bold"
-                >
-                  {Math.round(verificationProgress)}%
-                </text>
-              </svg>
-            </div>
-          )}
         </div>
 
         {/* Status indicators */}
         {faceVerified === null && (
           <div className="text-sm">
             {detecting && <p className="text-blue-600">Detecting face...</p>}
-            {!detecting && faceDetected && verifying && <p className="text-blue-600">Verifying identity...</p>}
-            {!detecting && faceDetected && !verifying && <p className="text-green-600">Face detected - Verifying automatically</p>}
+            {!detecting && faceDetected && <p className="text-green-600">Face detected - Please look directly at camera</p>}
             {!detecting && !faceDetected && <p className="text-amber-600">No face detected, please align your face within the frame</p>}
             {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
           </div>
@@ -661,10 +501,9 @@ export default function UserRegistrationForm() {
           </div>
         )}
 
-        {/* Manual verification buttons - only show when live verification is active but not succeeded yet */}
+        {/* Action buttons - only show when not displaying result or retry options */}
         {faceVerified === null && (
           <div className="flex justify-center space-x-4">
-            {/* Only show manual verification button if face detection has been active for a while without success */}
             <button
               onClick={verifyFace}
               disabled={!faceDetected || verifying}
@@ -674,7 +513,7 @@ export default function UserRegistrationForm() {
                   : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}
             >
-              {verifying ? 'Verifying...' : 'Verify Manually'}
+              {verifying ? 'Verifying...' : 'Verify Face'}
             </button>
             <button
               onClick={() => selfieInputRef.current.click()}
