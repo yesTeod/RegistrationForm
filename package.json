@@ -18,8 +18,7 @@
     "@aws-sdk/client-rekognition": "^3.330.0",
     "@sumsub/websdk-react": "^1.0.0",
     "node-fetch": "^3.3.2",
-    "axios": "^1.4.0",
-    "@sumsub/websdk-react-wrapper": "^1.0.0"
+    "axios": "^1.4.0"
   },
   "devDependencies": {
     "@types/react": "19.0.0",
