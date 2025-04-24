@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import launchIdAndLiveness from './sumsub-id-and-liveness.js';
+import { launchIdAndLiveness } from './sumsub-id-and-liveness';
 
 export default function UserRegistrationForm() {
   const [step, setStep] = useState('form');
