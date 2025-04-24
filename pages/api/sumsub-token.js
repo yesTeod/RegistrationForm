@@ -22,6 +22,16 @@ export default async function handler(req, res) {
 
   try {
     // Call Sumsub SDK token endpoint
+    // Build request payload
+    const { externalUserId, levelName, ttlInSecs = 600, applicantIdentifiers, externalActionId } = req.body;
+    const payload = {
+      userId: externalUserId,
+      levelName,
+      ttlInSecs,
+    };
+    if (applicantIdentifiers) payload.applicantIdentifiers = applicantIdentifiers;
+    if (externalActionId) payload.externalActionId = externalActionId;
+
     const sumsubRes = await fetch(
       'https://api.sumsub.com/resources/accessTokens/sdk',
       {
@@ -30,11 +40,7 @@ export default async function handler(req, res) {
           'Content-Type': 'application/json',
           'X-App-Token': process.env.SUMSUB_APP_TOKEN,
         },
-        body: JSON.stringify({
-          userId: externalUserId,
-          levelName,
-          ttlInSecs,
-        }),
+        body: JSON.stringify(payload),
       }
     );
 
@@ -44,7 +50,7 @@ export default async function handler(req, res) {
     }
 
     const data = await sumsubRes.json();
-    return res.status(200).json({ token: data.token, userId: data.userId });
+    return res.status(200).json({ token: data.token, userId: data.userId });.json({ token: data.token, userId: data.userId });
 
   } catch (err) {
     console.error('Token generation error:', err);
