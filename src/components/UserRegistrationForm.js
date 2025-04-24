@@ -162,10 +162,10 @@ export default function UserRegistrationForm() {
   const detectFaceOnServer = async (dataURL) => {
     // Check if throttling needed - only call API every 2 seconds
     const now = Date.now();
-    if (now - lastDetectionTime.current < 2000 || faceDetectionPaused) {
-      return; // Skip this detection cycle
+    if (now - lastDetectionTime.current < 2000 || faceDetectionPaused || verifying) {
+      return; // Skip this detection cycle if verifying or paused
     }
-    
+  
     setDetecting(true);
     setFaceError(null);
     lastDetectionTime.current = now;
@@ -207,7 +207,7 @@ export default function UserRegistrationForm() {
     }
     
     setVerifying(true);
-    setLastVerificationTime(now);
+    setFaceDetectionPaused(true);
     
     try {
       console.log("Attempting live verification...");
@@ -267,6 +267,7 @@ export default function UserRegistrationForm() {
       setVerificationProgress(prev => Math.max(0, prev - 10));
     } finally {
       setVerifying(false);
+      setFaceDetectionPaused(false); // Resume detection after verification completes
     }
   };
 
