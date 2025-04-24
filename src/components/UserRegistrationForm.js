@@ -4,17 +4,18 @@ export default function UserRegistrationForm() {
   const [step, setStep] = useState("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [photoFront, setPhotoFront] = useState(null);
   const [userToken, setUserToken] = useState(null);
   const [sumsubLoaded, setSumsubLoaded] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [idDetails, setIdDetails] = useState(null);
+  const [applicantId, setApplicantId] = useState(null);
   
   const containerRef = useRef(null);
   const sumsubContainerRef = useRef(null);
   const snWrapperRef = useRef(null);
+  const accessTokenRef = useRef(null);
   
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -32,6 +33,13 @@ export default function UserRegistrationForm() {
     await delay(600);
   };
 
+  // Generate a unique externalUserId
+  const generateExternalUserId = (email) => {
+    // Create a simple hash based on email and timestamp
+    const timestamp = new Date().getTime();
+    return `${email.split('@')[0]}-${timestamp}`;
+  };
+
   // Handle form submission to initiate verification
   const handleFormSubmit = async () => {
     if (!email || !password) {
@@ -43,14 +51,17 @@ export default function UserRegistrationForm() {
     setError(null);
     
     try {
+      const externalUserId = generateExternalUserId(email);
+      setApplicantId(externalUserId);
+      
       // Request access token from your backend
       const response = await fetch('/api/sumsub-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          userId: email, // Using email as userId for simplicity
-          levelName: 'basic-kyc-level', // Adjust based on your Sumsub configuration
-          ttlInSecs: 1200 // Token valid for 20 minutes
+          externalUserId: externalUserId,
+          levelName: 'basic-kyc-level', // Your Sumsub verification level name
+          ttlInSecs: 600 // Token valid for 10 minutes
         }),
       });
       
@@ -60,6 +71,7 @@ export default function UserRegistrationForm() {
       
       const data = await response.json();
       setUserToken(data.token);
+      accessTokenRef.current = data.token;
       
       // Move to verification step
       handleFlip("verification", "right");
@@ -68,6 +80,35 @@ export default function UserRegistrationForm() {
       setError(err.message || "Failed to start verification");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fetch the verification status of an applicant
+  const fetchIdDetails = async () => {
+    if (!applicantId) return;
+    
+    try {
+      const response = await fetch(`/api/sumsub-id-data?applicantId=${applicantId}`);
+      
+      if (!response.ok) {
+        console.warn("Couldn't fetch ID details");
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.documents && data.documents.length > 0) {
+        const doc = data.documents[0];
+        setIdDetails({
+          name: `${doc.firstName || ''} ${doc.lastName || ''}`.trim() || 'Not Available',
+          idNumber: doc.idNumber || 'Not Available',
+          expiry: doc.expiryDate || 'Not Available',
+          dob: doc.dateOfBirth || 'Not Available',
+          country: doc.country || 'Not Available'
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching ID details:", err);
     }
   };
 
@@ -115,11 +156,16 @@ export default function UserRegistrationForm() {
         
         // Initialize Sumsub WebSDK
         snsInstance = window.SumsubWebSdk.init(
-          userToken,
+          accessTokenRef.current,
           {
             // These options control the appearance and behavior of the SDK
             uiConf: {
-              customCssStr: 'body { font-family: sans-serif; } .title { color: #262626; }',
+              customCssStr: `
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+                .title { color: #262626; }
+                .button { background-color: #fbbf24 !important; color: #000 !important; }
+                .button:hover { background-color: #f59e0b !important; }
+              `,
               lang: 'en',
               //logo: 'https://your-logo-url.png', // Optional: add your company logo
               onboardingConf: {
@@ -135,7 +181,35 @@ export default function UserRegistrationForm() {
             
             // Config for the communication flow
             apiUrl: 'https://api.sumsub.com',
-            flowName: 'msdk-basic', // Or your specific flow from Sumsub
+            flowName: 'msdk-basic', // Your specific flow from Sumsub
+            
+            // Access token callback - critical for token refresh
+            accessTokenExpirationHandler: async () => {
+              try {
+                // Get new token when the current one expires
+                const response = await fetch('/api/sumsub-token', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                    externalUserId: applicantId,
+                    levelName: 'basic-kyc-level',
+                    ttlInSecs: 600
+                  }),
+                });
+                
+                if (!response.ok) {
+                  throw new Error('Failed to refresh token');
+                }
+                
+                const data = await response.json();
+                accessTokenRef.current = data.token;
+                return data.token;
+              } catch (err) {
+                console.error("Error refreshing token:", err);
+                setError("Session expired. Please try again.");
+                return null;
+              }
+            },
             
             // Callbacks for different events
             events: {
@@ -145,6 +219,7 @@ export default function UserRegistrationForm() {
               onError: (error) => {
                 console.error('Sumsub error:', error);
                 setError(`Verification error: ${error.message || 'Unknown error'}`);
+                setIsLoading(false);
               },
               onStateChange: (state) => {
                 console.log('Sumsub state changed:', state);
@@ -155,15 +230,20 @@ export default function UserRegistrationForm() {
               onDocUploaded: (docType, docStatus) => {
                 console.log('Sumsub document uploaded:', docType, docStatus);
                 if (docType === 'IDENTITY' && docStatus === 'completed') {
-                  // Optionally extract ID details when document is uploaded
+                  // Extract ID details when document is uploaded
                   fetchIdDetails();
                 }
               },
-              onApplicantSubmitted: (applicantId) => {
-                console.log('Applicant submitted:', applicantId);
+              onApplicantSubmitted: (applicationId) => {
+                console.log('Applicant submitted:', applicationId);
                 setVerificationStatus('submitted');
                 // Proceed to check verification status
-                checkVerificationStatus(applicantId);
+                checkVerificationStatus(applicationId);
+              },
+              onApplicantResubmitted: (applicationId) => {
+                console.log('Applicant resubmitted:', applicationId);
+                setVerificationStatus('submitted');
+                checkVerificationStatus(applicationId);
               },
               onInit: () => {
                 console.log('Sumsub SDK initialized');
@@ -192,16 +272,16 @@ export default function UserRegistrationForm() {
         snWrapperRef.current.remove();
       }
     };
-  }, [userToken]);
+  }, [userToken, applicantId]);
 
   // Function to fetch verification status from backend
-  const checkVerificationStatus = async (applicantId) => {
+  const checkVerificationStatus = async (applicationId) => {
     try {
       setIsLoading(true);
       
       // Polling approach - in production, you would use webhooks
-      const interval = setInterval(async () => {
-        const response = await fetch(`/api/sumsub-status?applicantId=${applicantId}`);
+      const checkStatus = async () => {
+        const response = await fetch(`/api/sumsub-status?applicantId=${applicantId || applicationId}`);
         
         if (!response.ok) {
           throw new Error('Failed to check verification status');
@@ -209,20 +289,44 @@ export default function UserRegistrationForm() {
         
         const data = await response.json();
         
-        if (data.reviewStatus) {
-          clearInterval(interval);
-          setIsLoading(false);
+        return data;
+      };
+      
+      // Initial check
+      let statusData = await checkStatus();
+      
+      if (statusData.reviewStatus === 'approved') {
+        setVerificationStatus('approved');
+        setIsLoading(false);
+        handleFlip('success', 'right');
+        return;
+      }
+      
+      if (statusData.reviewStatus === 'denied') {
+        setVerificationStatus('rejected');
+        setIsLoading(false);
+        setError(statusData.reviewResult?.moderationComment || 'Verification was rejected');
+        return;
+      }
+      
+      // If not immediately resolved, set up polling
+      const interval = setInterval(async () => {
+        try {
+          statusData = await checkStatus();
           
-          if (data.reviewStatus === 'approved') {
+          if (statusData.reviewStatus === 'approved') {
+            clearInterval(interval);
             setVerificationStatus('approved');
+            setIsLoading(false);
             handleFlip('success', 'right');
-          } else if (data.reviewStatus === 'denied') {
+          } else if (statusData.reviewStatus === 'denied') {
+            clearInterval(interval);
             setVerificationStatus('rejected');
-            setError(data.reviewResult?.moderationComment || 'Verification was rejected');
-          } else {
-            // Still in progress
-            setVerificationStatus(data.reviewStatus);
+            setIsLoading(false);
+            setError(statusData.reviewResult?.moderationComment || 'Verification was rejected');
           }
+        } catch (error) {
+          console.error("Error in status check:", error);
         }
       }, 5000); // Check every 5 seconds
       
@@ -232,6 +336,7 @@ export default function UserRegistrationForm() {
         setIsLoading(false);
         if (verificationStatus !== 'approved' && verificationStatus !== 'rejected') {
           setVerificationStatus('pending');
+          setError("Verification is taking longer than expected. You'll be notified when it's complete.");
         }
       }, 120000);
       
@@ -239,33 +344,6 @@ export default function UserRegistrationForm() {
       console.error("Error checking verification status:", err);
       setError("Failed to get verification result");
       setIsLoading(false);
-    }
-  };
-
-  // Function to fetch extracted ID details from Sumsub
-  const fetchIdDetails = async () => {
-    try {
-      const response = await fetch('/api/sumsub-id-details', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: email }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch ID details');
-      }
-      
-      const data = await response.json();
-      if (data.idData) {
-        setIdDetails({
-          name: data.idData.firstName + ' ' + data.idData.lastName,
-          fatherName: data.idData.middleName || 'N/A',
-          idNumber: data.idData.number || 'N/A',
-          expiry: data.idData.validUntil || 'N/A'
-        });
-      }
-    } catch (err) {
-      console.error("Error fetching ID details:", err);
     }
   };
 
@@ -456,10 +534,9 @@ export default function UserRegistrationForm() {
             <div className="text-sm text-left p-4 bg-gray-50 rounded-lg">
               <h3 className="font-medium text-gray-700 mb-2">ID Details</h3>
               <p><span className="font-medium">Name:</span> {idDetails.name}</p>
-              {idDetails.fatherName !== 'N/A' && (
-                <p><span className="font-medium">Father's Name:</span> {idDetails.fatherName}</p>
-              )}
               <p><span className="font-medium">ID Number:</span> {idDetails.idNumber}</p>
+              <p><span className="font-medium">DOB:</span> {idDetails.dob}</p>
+              <p><span className="font-medium">Country:</span> {idDetails.country}</p>
               <p><span className="font-medium">Expiry:</span> {idDetails.expiry}</p>
             </div>
           )}
