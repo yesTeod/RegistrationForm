@@ -1,18 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { launchIdAndLiveness } from './sumsub-id-and-liveness';
 
 export default function UserRegistrationForm() {
   const [step, setStep] = useState('form');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [externalUserId, setExternalUserId] = useState(null);
   const [userToken, setUserToken] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const containerRef = useRef(null);
-  const accessTokenRef = useRef(null);
-  const sdkScriptAdded = useRef(false);
-
-  // Request Sumsub access token
+  // Submit form and get initial id-and-liveness token
   const handleFormSubmit = async () => {
     if (!email || !password) {
       setError('Please enter both email and password');
@@ -20,68 +18,64 @@ export default function UserRegistrationForm() {
     }
     setError(null);
     setIsLoading(true);
-    // generate simple externalUserId
-    const externalUserId = `${email.split('@')[0]}-${Date.now()}`;
+
+    // Generate a unique externalUserId
+    const uid = `${email.split('@')[0]}-${Date.now()}`;
+    setExternalUserId(uid);
 
     try {
       const res = await fetch('/api/sumsub-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ externalUserId, levelName: 'basic-kyc-level', ttlInSecs: 600 }),
+        body: JSON.stringify({
+          externalUserId: uid,
+          levelName: 'id-and-liveness',
+          ttlInSecs: 600
+        }),
       });
-      if (!res.ok) throw new Error('Token request failed');
+      if (!res.ok) throw new Error('Failed to fetch verification token');
       const { token } = await res.json();
-      accessTokenRef.current = token;
       setUserToken(token);
       setStep('verification');
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Load SDK script and init when ready
+  // Token refresh callback
+  const refreshTokenFn = async () => {
+    try {
+      const res = await fetch('/api/sumsub-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          externalUserId,
+          levelName: 'id-and-liveness',
+          ttlInSecs: 600
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to refresh token');
+      const { token } = await res.json();
+      setUserToken(token);
+      return token;
+    } catch (err) {
+      setError(err.message);
+      return null;
+    }
+  };
+
+  // Initialize and launch Sumsub SDK on verification step
   useEffect(() => {
     if (step !== 'verification' || !userToken) return;
 
-    const initSdk = () => {
-      if (!window.SumsubWebSdk || !containerRef.current) return;
-      window.SumsubWebSdk.init(accessTokenRef.current, {
-        container: containerRef.current,
-        apiUrl: 'https://api.sumsub.com',
-        flowName: 'msdk-basic',
-        uiConf: { lang: 'en' },
-        accessTokenExpirationHandler: async () => {
-          // refresh token
-          const res = await fetch('/api/sumsub-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ /* same externalUserId and levelName */ }),
-          });
-          const { token } = await res.json();
-          accessTokenRef.current = token;
-          return token;
-        },
-        events: {
-          onError: (err) => setError(err.message || 'Verification error'),
-          onStateChange: (state) => {
-            if (state === 'final') setStep('success');
-          },
-        },
-      });
-    };
-
-    if (!sdkScriptAdded.current) {
-      const script = document.createElement('script');
-      script.src = 'https://static.sumsub.com/idensic/static/sns-websdk-build.js';
-      script.async = true;
-      script.onload = initSdk;
-      document.body.appendChild(script);
-      sdkScriptAdded.current = true;
-    } else {
-      initSdk();
-    }
+    const sdk = launchIdAndLiveness(
+      userToken,
+      refreshTokenFn,
+      '#sumsub-websdk-container'
+    );
+    return () => sdk.destroy();
   }, [step, userToken]);
 
   return (
@@ -107,7 +101,11 @@ export default function UserRegistrationForm() {
           <button
             onClick={handleFormSubmit}
             disabled={isLoading}
-            className={`w-full py-2 rounded-xl shadow-md transition-colors ${isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-yellow-400 hover:bg-yellow-300 text-black'}`}
+            className={`w-full py-2 rounded-xl shadow-md transition-colors ${
+              isLoading
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-yellow-400 hover:bg-yellow-300 text-black'
+            }`}
           >
             {isLoading ? 'Starting...' : 'Continue to Verification'}
           </button>
@@ -116,7 +114,7 @@ export default function UserRegistrationForm() {
 
       {step === 'verification' && (
         <div className="mt-4">
-          <div ref={containerRef} style={{ minHeight: 400 }} />
+          <div id="sumsub-websdk-container" style={{ minHeight: '400px' }} />
           {error && <p className="text-red-600 mt-2">{error}</p>}
         </div>
       )}
@@ -125,7 +123,7 @@ export default function UserRegistrationForm() {
         <div className="text-center space-y-4">
           <div className="text-6xl">✅</div>
           <h2 className="text-2xl font-semibold">Verification Complete</h2>
-          <p>Thank you! Your identity has been verified.</p>
+          <p>Your identity has been verified.</p>
           <button
             onClick={() => window.location.href = '/dashboard'}
             className="mt-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl shadow"
