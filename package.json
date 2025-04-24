@@ -13,9 +13,9 @@
     "body-parser": "^1.20.2",
     "tesseract.js": "^2.1.5",
     "tesseract.js-core": "^2.1.1",
-    "openai": "^3.1.0",
+    "openai": "^4.28.0",
     "serverless-http": "^2.7.0",
-    "faceapi": "^0.22.2",
+    "@aws-sdk/client-rekognition": "^3.330.0",
     "@sumsub/websdk-react": "^1.0.0",
     "node-fetch": "^3.3.2"
   },
@@ -33,3 +33,4 @@
   },
   "browserslist": [">0.2%", "not dead", "not ie <= 11", "not op_mini all"]
 }
+
