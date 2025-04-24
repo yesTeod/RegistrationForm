@@ -1,3 +1,12 @@
+// Using node-fetch for API requests
+import fetch from 'node-fetch';
+
+// This is a Vercel Edge Function - better for long-running processes
+export const config = {
+  runtime: 'edge',
+  regions: ['iad1'], // US East (N. Virginia)
+};
+
 export default async function handler(request) {
   // Only accept POST requests
   if (request.method !== 'POST') {
