@@ -46,6 +46,7 @@ export default async function handler(req, res) {
     console.log('--- Sumsub Auth Debug Info ---');
     console.log('Timestamp (X-Request-Ts):', ts);
     console.log('App Token (X-App-Token):', SUMSUB_APP_TOKEN ? 'Provided' : 'MISSING!'); // Don't log the token itself
+    console.log('Secret Key:', SUMSUB_SECRET_KEY ? 'Provided' : 'MISSING!'); // Check if the secret key is loaded
     console.log('Method for Signature:', method.toUpperCase());
     console.log('Path for Signature:', path);
     console.log('Data Signed:', dataToSign);
