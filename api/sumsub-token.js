@@ -1,4 +1,4 @@
-import crypto from "crypto";
+const crypto = require('crypto');
 
 // Sumsub API base URL
 const SUMSUB_API_URL = 'https://api.sumsub.com';
@@ -41,6 +41,16 @@ export default async function handler(req, res) {
     const dataToSign = ts + method.toUpperCase() + path;
     hmac.update(dataToSign);
     const signature = hmac.digest('hex');
+
+    // --- Debug Logging ---
+    console.log('--- Sumsub Auth Debug Info ---');
+    console.log('Timestamp (X-Request-Ts):', ts);
+    console.log('App Token (X-App-Token):', SUMSUB_APP_TOKEN ? 'Provided' : 'MISSING!'); // Don't log the token itself
+    console.log('Method for Signature:', method.toUpperCase());
+    console.log('Path for Signature:', path);
+    console.log('Data Signed:', dataToSign);
+    console.log('Calculated Signature (X-Request-Sig):', signature);
+    console.log('--- End Debug Info ---');
 
     // --- Make Request to Sumsub API ---
     const sumsubResponse = await fetch(url, {
