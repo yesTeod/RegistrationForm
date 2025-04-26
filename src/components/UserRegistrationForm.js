@@ -1,555 +1,195 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import snsWebSdk from '@sumsub/websdk'; // Import Sumsub SDK
 
 export default function UserRegistrationForm() {
-  const [step, setStep] = useState("form");
+  // --- State Variables ---
+  const [step, setStep] = useState("form"); // 'form', 'sumsub', 'success'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [photoFront, setPhotoFront] = useState(null);
-  const [cameraAvailable, setCameraAvailable] = useState(true);
-  const [cameraStatus, setCameraStatus] = useState("idle");
-  const [isFlipping, setIsFlipping] = useState(false);
-  const [faceDetected, setFaceDetected] = useState(false);
-  const [mockMode, setMockMode] = useState(false);
-  const [idDetails, setIdDetails] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [faceVerified, setFaceVerified] = useState(null);
-  const [verifying, setVerifying] = useState(false);
-  const [detecting, setDetecting] = useState(false);
-  const [faceError, setFaceError] = useState(null);
-  const [verificationAttempts, setVerificationAttempts] = useState(0);
-  const [showRetryOptions, setShowRetryOptions] = useState(false);
-  const [faceDetectionPaused, setFaceDetectionPaused] = useState(false);
+  const [sumsubAccessToken, setSumsubAccessToken] = useState(null);
+  const [isSumsubLoading, setIsSumsubLoading] = useState(false);
+  const [sumsubError, setSumsubError] = useState(null);
+  const sumsubContainerRef = useRef(null); // Ref for the Sumsub container
 
-  const videoRef = useRef(null);
-  const faceVideoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const faceCanvasRef = useRef(null);
-  const containerRef = useRef(null);
-  const streamRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const selfieInputRef = useRef(null);
-  const lastDetectionTime = useRef(0);
+  // --- Refs (Keep containerRef if needed for styling/animation, remove others) ---
+  const containerRef = useRef(null); // Keep for potential styling/animation
+  // Remove: videoRef, faceVideoRef, canvasRef, faceCanvasRef, fileInputRef, selfieInputRef, streamRef, lastDetectionTime
 
+  // --- Helper Functions ---
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Handle file upload without compression.
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  // --- Sumsub Integration ---
 
+  // Function to fetch a new access token from your backend
+  const fetchSumsubToken = async () => {
     try {
-      setIsUploading(true);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPhotoFront(e.target.result);
-        handleFlip("completed", "right");
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error("Error processing image:", error);
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleFlip = async (nextStep, direction = "right") => {
-    if (isFlipping) return;
-    setIsFlipping(true);
-    const card = containerRef.current;
-    if (card) {
-      card.style.transition = "transform 0.6s ease";
-      card.style.transform =
-        direction === "left" ? "rotateY(-90deg)" : "rotateY(90deg)";
-    }
-    await delay(600);
-    setStep(nextStep);
-    if (card) card.style.transform = "rotateY(0deg)";
-    await delay(600);
-    setIsFlipping(false);
-  };
-
-  const startCamera = (facing = "environment", targetRef = videoRef) => {
-    setCameraStatus("pending");
-    // Request a higher resolution stream for a clear, crisp feed.
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          facingMode: { exact: facing },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+      // Replace with your actual API endpoint
+      const response = await fetch('/api/sumsub-token', {
+        method: 'POST', // or 'GET', depending on your backend setup
+        headers: {
+          'Content-Type': 'application/json',
+          // Include any necessary auth headers if required by your backend
         },
-      })
-      .then((stream) => {
-        streamRef.current = stream;
-        if (targetRef.current) {
-          targetRef.current.srcObject = stream;
-          targetRef.current.play();
-        }
-        setCameraAvailable(true);
-        setCameraStatus("active");
-      })
-      .catch(() => {
-        setCameraAvailable(false);
-        setCameraStatus("error");
-        setMockMode(false);
-      });
-  };
-
-  const stopCamera = () => {
-    const stream = streamRef.current;
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-  };
-
-  const handleFormSubmit = () => {
-    startCamera();
-    handleFlip("camera", "right");
-  };
-
-  const capturePhoto = async () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      // Set canvas dimensions to match the video feed for a clear capture.
-      canvas.width = video.videoWidth || 320;
-      canvas.height = video.videoHeight || 240;
-      const context = canvas.getContext("2d");
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = canvas.toDataURL("image/png");
-      setPhotoFront(imageData);
-      stopCamera();
-      handleFlip("completed", "right");
-    }
-  };
-
-  const retakePhoto = async () => {
-    startCamera();
-    await delay(200);
-    await handleFlip("camera", "left");
-  };
-
-  const handleSubmit = async () => {
-    stopCamera();
-    await delay(300); // wait for camera to stop cleanly
-    await handleFlip("verification", "right");
-    await delay(200); // wait for DOM to update
-    setFaceVerified(null);
-    setVerificationAttempts(0);
-    setShowRetryOptions(false);
-    setFaceDetectionPaused(false);
-    setFaceDetected(false);
-    lastDetectionTime.current = 0;
-    startCamera("user", faceVideoRef);
-  };
-
-  // Face detection with rate limiting
-  const detectFaceOnServer = async (dataURL) => {
-    // Check if throttling needed - only call API every 3 seconds
-    const now = Date.now();
-    if (now - lastDetectionTime.current < 3000 || faceDetectionPaused) {
-      return; // Skip this detection cycle
-    }
-    
-    setDetecting(true);
-    setFaceError(null);
-    lastDetectionTime.current = now;
-    
-    try {
-      const res = await fetch('/api/detect-face', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataURL }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setFaceDetected(false);
-        setFaceError(json.error || 'Detection error');
-      } else {
-        setFaceDetected(json.faceDetected);
-      }
-    } catch (e) {
-      setFaceDetected(false);
-      setFaceError('Network error');
-    } finally {
-      setDetecting(false);
-    }
-  };
-
-  // On verification step, poll for face detection with rate limiting
-  useEffect(() => {
-    let interval;
-    if (step === 'verification' && !faceDetectionPaused) {
-      interval = setInterval(() => {
-        if (faceCanvasRef.current) {
-          const canvas = faceCanvasRef.current;
-          const context = canvas.getContext("2d");
-          // Make sure video is ready
-          if (faceVideoRef.current && faceVideoRef.current.readyState >= 2) {
-            context.drawImage(faceVideoRef.current, 0, 0, 320, 240);
-            const dataURL = canvas.toDataURL('image/png');
-            detectFaceOnServer(dataURL);
-          }
-        }
-      }, 1000); // Check every second, but API calls are throttled internally
-    }
-    return () => clearInterval(interval);
-  }, [step, faceDetectionPaused]);
-
-  // AWS Rekognition call
-  const verifyFace = async () => {
-    setVerifying(true);
-    setShowRetryOptions(false);
-    setFaceDetectionPaused(true); // Pause detection during verification
-    
-    try {
-      const resp = await fetch('/api/verify-face', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idImage: photoFront, selfie: faceCanvasRef.current.toDataURL('image/png') }),
-      });
-      
-      if (!resp.ok) {
-        // Handle HTTP error responses (e.g., 400 Bad Request)
-        const errorData = await resp.json().catch(() => ({ error: 'Unknown error' }));
-        console.error("Face verification failed:", resp.status, errorData);
-        setFaceVerified(false);
-        setVerificationAttempts(prev => prev + 1);
-        setShowRetryOptions(true);
-        return;
-      }
-      
-      const data = await resp.json();
-      setFaceVerified(data.match);
-      
-      if (!data.match) {
-        setVerificationAttempts(prev => prev + 1);
-        setShowRetryOptions(true);
-      }
-    } catch (err) {
-      console.error("Face verification error:", err);
-      setFaceVerified(false);
-      setVerificationAttempts(prev => prev + 1);
-      setShowRetryOptions(true);
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  // Reset verification state for retry
-  const handleRetryVerification = () => {
-    setFaceVerified(null);
-    setShowRetryOptions(false);
-    setFaceDetectionPaused(false);
-    lastDetectionTime.current = 0; // Reset timer to allow immediate detection
-  };
-
-  // --- Verify via upload ---
-  const handleSelfieUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setVerifying(true);
-    setShowRetryOptions(false);
-    setFaceDetectionPaused(true); // Pause detection during verification
-    
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const dataURL = ev.target.result;
-      try {
-        const res = await fetch("/api/verify-face", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ idImage: photoFront, selfie: dataURL }),
-        });
-        
-        if (!res.ok) {
-          // Handle HTTP error responses
-          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-          console.error("Face verification failed:", res.status, errorData);
-          setFaceVerified(false);
-          setVerificationAttempts(prev => prev + 1);
-          setShowRetryOptions(true);
-          return;
-        }
-        
-        const data = await res.json();
-        setFaceVerified(data.match);
-        
-        if (!data.match) {
-          setVerificationAttempts(prev => prev + 1);
-          setShowRetryOptions(true);
-        }
-      } catch (err) {
-        console.error("Face verification error:", err);
-        setFaceVerified(false);
-        setVerificationAttempts(prev => prev + 1);
-        setShowRetryOptions(true);
-      } finally {
-        setVerifying(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Return to completed step or go to success if verification is successful
-  const handleVerificationComplete = () => {
-    if (faceVerified) {
-      handleFlip("success", "right");
-    } else {
-      // This shouldn't typically happen as the button is only shown in success case
-      handleFlip("completed", "left");
-    }
-  }
-
-  // This helper function compresses the image dataURL for OCR.
-  function compressImageForOCR(dataURL, quality = 0.9) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = dataURL;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        // Optionally, you can also reduce dimensions here if needed.
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        // Convert image to JPEG with the specified quality.
-        const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
-        // Estimate file size in KB (base64 encoding approximates to 3/4 the length in bytes)
-        const fileSizeKb = Math.round((compressedDataURL.length * (3 / 4)) / 1024);
-        if (fileSizeKb > 1024 && quality > 0.1) {
-          // Reduce quality further if file size is still too high.
-          compressImageForOCR(dataURL, quality - 0.1).then(resolve);
-        } else {
-          resolve(compressedDataURL);
-        }
-      };
-    });
-  }
-
-  async function extractIdDetails(imageData) {
-    try {
-      setIsExtracting(true);
-
-      // Estimate file size and compress if necessary.
-      const fileSizeKb = Math.round((imageData.length * (3 / 4)) / 1024);
-      let processedImage = imageData;
-      if (fileSizeKb > 1024) {
-        processedImage = await compressImageForOCR(imageData);
-      }
-
-      const response = await fetch("/api/extract-id", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: processedImage }),
+        // Add body if needed, e.g., { userId: 'some-user-id' }
+        // body: JSON.stringify({ email }) // Example: pass email to associate token
       });
       if (!response.ok) {
-        throw new Error("OCR request failed");
+        const errorData = await response.json().catch(() => ({ message: 'Failed to fetch token' }));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      if (data.error) {
-        console.warn("API returned an error:", data.error);
+      if (!data.accessToken) {
+        throw new Error("Access token not found in response");
       }
-      return data;
+      return data.accessToken;
     } catch (error) {
-      console.error("Error extracting ID details:", error);
-      return {
-        name: "Not found",
-        idNumber: "Not found",
-        expiry: "Not found",
-      };
-    } finally {
-      setIsExtracting(false);
+      console.error("Error fetching Sumsub token:", error);
+      setSumsubError(`Failed to initialize verification: ${error.message}`);
+      setIsSumsubLoading(false); // Ensure loading state is turned off on error
+      return null; // Indicate failure
     }
-  }
+  };
 
-  // Trigger OCR extraction when registration is completed.
-  useEffect(() => {
-    if (step === "completed" && photoFront && !idDetails && !isExtracting) {
-      extractIdDetails(photoFront).then((details) => {
-        console.log("Extracted ID Details:", details);
-        if (details) {
-          setIdDetails(details);
-        }
-      });
+
+  // Initialize and launch the Sumsub WebSDK
+  const launchWebSdk = (accessToken) => {
+    if (!sumsubContainerRef.current) {
+        console.error("Sumsub container element not found.");
+        setSumsubError("Failed to initialize verification: UI element missing.");
+        setIsSumsubLoading(false);
+        return;
     }
-  }, [step, photoFront, idDetails, isExtracting]);
+    
+    // Ensure the container is empty before launching
+    sumsubContainerRef.current.innerHTML = '';
 
-  useEffect(() => {
-    const card = containerRef.current;
-    const handleMouseMove = (e) => {
-      if (isFlipping || !card) return;
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const rotateX = ((y - centerY) / centerY) * -10;
-      const rotateY = ((x - centerX) / centerX) * 10;
-      card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-    };
-    const resetRotation = () => {
-      if (isFlipping || !card) return;
-      card.style.transform = "rotateX(0deg) rotateY(0deg)";
-    };
-    card?.addEventListener("mousemove", handleMouseMove);
-    card?.addEventListener("mouseleave", resetRotation);
-    return () => {
-      card?.removeEventListener("mousemove", handleMouseMove);
-      card?.removeEventListener("mouseleave", resetRotation);
-    };
-  }, [isFlipping]);
+    try {
+        let snsWebSdkInstance = snsWebSdk.init(
+            accessToken,
+            // Token update callback: fetch a new token when the current one expires
+            () => fetchSumsubToken()
+        )
+        .withConf({
+            lang: 'en', // Set language
+            // Add other configurations if needed (e.g., custom translations, UI settings)
+            // email: email, // Optionally pre-fill email
+            // phone: '', // Optionally pre-fill phone
+            // uiConf: {
+            //     customCss: "https://url.com/styles.css" // Example customization
+            // }
+        })
+        .on('onError', (error) => {
+            // General SDK errors
+            console.error('Sumsub SDK Error:', error);
+            setSumsubError(`Verification error: ${error?.message || 'Unknown SDK error'}`);
+            // Optionally revert step or show error message
+            // setStep('form'); // Example: Go back to form on critical error
+            setIsSumsubLoading(false);
+        })
+        .onMessage((type, payload) => {
+            // Handle different messages from the SDK
+            console.log('Sumsub Message:', type, payload);
 
-  // Clean up when component unmounts
-  useEffect(() => {
+            // Example: Check for completion status
+            // The exact message type/payload might vary based on your flow and Sumsub version.
+            // Consult Sumsub documentation for the specific messages for 'id-and-liveness'.
+            if (type === 'idCheck.stepCompleted' && payload?.step === 'liveness' && payload?.status === 'success') {
+                 console.log('Liveness check successful');
+                 // Verification successful (or at least this step is)
+                 setStep("success");
+                 setIsSumsubLoading(false); // Turn off loading indicator
+            } else if (type === 'idCheck.applicantStatus' && payload?.reviewStatus === 'completed') {
+                 // This might be another way to check completion, depending on config
+                 if (payload?.reviewResult?.reviewAnswer === 'GREEN') {
+                    console.log('Applicant status is GREEN');
+                    setStep("success");
+                 } else {
+                    console.log('Applicant status is not GREEN:', payload?.reviewResult?.reviewAnswer);
+                    setSumsubError(`Verification completed but requires review or was rejected: ${payload?.reviewResult?.reviewAnswer}`);
+                    // Handle RED/other statuses (e.g., show message, redirect)
+                 }
+                 setIsSumsubLoading(false);
+            }
+            // Add more handlers as needed for different messages (e.g., user actions, step changes)
+        })
+        .build();
+
+        // Launch the SDK in the designated container
+        snsWebSdkInstance.launch(sumsubContainerRef.current); // Pass the DOM element directly
+        setStep("sumsub"); // Move to the Sumsub step
+        setIsSumsubLoading(false); // SDK launched, stop loading indicator
+
+    } catch (initError) {
+         console.error("Error initializing Sumsub SDK:", initError);
+         setSumsubError(`Failed to initialize verification: ${initError.message}`);
+         setIsSumsubLoading(false);
+    }
+  };
+
+  // --- Event Handlers ---
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault(); // Prevent default form submission
+    setSumsubError(null); // Clear previous errors
+    setIsSumsubLoading(true);
+
+    const token = await fetchSumsubToken();
+
+    if (token) {
+      setSumsubAccessToken(token);
+      // Launch SDK after token is fetched
+      // Use a small delay to ensure state update and rendering before launching
+      // setTimeout(() => launchWebSdk(token), 100);
+      // Launch directly now that launchWebSdk handles container check
+       launchWebSdk(token);
+    } else {
+      // Error handled within fetchSumsubToken, loading state also reset there
+      console.log("Failed to get Sumsub token. Cannot proceed.");
+    }
+  };
+
+  // Remove handleFlip, startCamera, stopCamera, capturePhoto, retakePhoto, handleSubmit (partially, replaced by handleFormSubmit),
+  // detectFaceOnServer, verifyFace, handleRetryVerification, handleSelfieUpload, handleVerificationComplete,
+  // compressImageForOCR, extractIdDetails
+
+
+  // --- Effects ---
+
+  // Remove useEffect for face detection and OCR extraction
+  // Remove useEffect for card rotation unless you re-implement a similar effect
+
+  // Clean up Sumsub SDK instance if component unmounts during verification
+   useEffect(() => {
+    // This effect now primarily focuses on cleanup if needed,
+    // The SDK instance management is mostly within launchWebSdk
     return () => {
-      stopCamera();
+      // Sumsub SDK might have its own cleanup methods if needed,
+      // but usually just removing the container is enough.
+      // If snsWebSdkInstance was stored in state or ref, call instance.destroy() here.
+      console.log("UserRegistrationForm unmounted");
     };
   }, []);
 
-  const renderVerificationStepContent = () => {
-    return (
-      <div className="text-center space-y-4">
-        <h2 className="text-xl font-semibold">
-          Face Verification
-        </h2>
 
-        <div className="mx-auto w-80 h-60 relative overflow-hidden rounded-lg border">
-          {/* Display guide overlay if verification is active */}
-          {faceVerified === null && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="w-48 h-48 border-2 border-dashed border-yellow-400 rounded-full mx-auto mt-4 opacity-60"></div>
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-yellow-400 rounded-full opacity-60"></div>
-            </div>
-          )}
-          <video ref={faceVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-          <canvas ref={faceCanvasRef} width={320} height={240} className="absolute top-0 left-0 opacity-0" />
-        </div>
-
-        {/* Status indicators */}
-        {faceVerified === null && (
-          <div className="text-sm">
-            {detecting && <p className="text-blue-600">Detecting face...</p>}
-            {!detecting && faceDetected && <p className="text-green-600">Face detected - Please look directly at camera</p>}
-            {!detecting && !faceDetected && <p className="text-amber-600">No face detected, please align your face within the frame</p>}
-            {faceError && <p className="text-red-600 text-xs">{faceError}</p>}
-          </div>
-        )}
-
-        {/* Verification success message */}
-        {faceVerified === true && (
-          <div className="bg-green-100 p-4 rounded-lg border border-green-300">
-            <p className="text-green-700 font-medium text-lg">Identity Verified</p>
-            <p className="text-green-600 text-sm">Your face has been successfully matched with your ID.</p>
-            <button 
-              onClick={handleVerificationComplete}
-              className="mt-3 px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow transition-colors"
-            >
-              Continue
-            </button>
-          </div>
-        )}
-
-        {/* Verification failure message with guidance */}
-        {faceVerified === false && (
-          <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-            <p className="text-red-700 font-medium text-lg">Verification Failed</p>
-            <p className="text-red-600 text-sm mb-2">
-              We couldn't match your face with the ID provided.
-            </p>
-            
-            {showRetryOptions && (
-              <div className="space-y-3 mt-2">
-                <p className="text-gray-700 text-sm">Please try again with these tips:</p>
-                <ul className="text-xs text-left list-disc pl-5 text-gray-600">
-                  <li>Ensure good lighting on your face</li>
-                  <li>Remove glasses or face coverings</li>
-                  <li>Look directly at the camera</li>
-                  <li>Avoid shadows on your face</li>
-                </ul>
-                
-                <div className="flex flex-col space-y-2 mt-3">
-                  <button
-                    onClick={handleRetryVerification}
-                    className="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow"
-                  >
-                    Try Again
-                  </button>
-                  
-                  {verificationAttempts >= 2 && (
-                    <button
-                      onClick={() => handleFlip("completed", "left")}
-                      className="w-full px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg shadow"
-                    >
-                      Back to ID Verification
-                    </button>
-                  )}
-                  
-                  {verificationAttempts >= 3 && (
-                    <button
-                      onClick={() => window.location.href = "/contact-support"}
-                      className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow"
-                    >
-                      Contact Support
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Action buttons - only show when not displaying result or retry options */}
-        {faceVerified === null && (
-          <div className="flex justify-center space-x-4">
-            <button
-              onClick={verifyFace}
-              disabled={!faceDetected || verifying}
-              className={`px-4 py-2 rounded-full transition-colors ${
-                faceDetected && !verifying
-                  ? "bg-yellow-400 hover:bg-yellow-300 text-black"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-              }`}
-            >
-              {verifying ? 'Verifying...' : 'Verify Face'}
-            </button>
-            <button
-              onClick={() => selfieInputRef.current.click()}
-              disabled={verifying}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full"
-            >
-              {verifying ? 'Uploading...' : 'Upload Selfie'}
-            </button>
-          </div>
-        )}
-
-        <input
-          type="file"
-          accept="image/*"
-          ref={selfieInputRef}
-          onChange={handleSelfieUpload}
-          className="hidden"
-        />
-      </div>
-    );
-  };
+  // --- Rendering Logic ---
 
   return (
     <div
-      ref={containerRef}
-      className="p-6 max-w-md mx-auto bg-gradient-to-br from-gray-100 to-gray-300 rounded-3xl shadow-xl transition-transform duration-300 relative border border-gray-300 will-change-transform"
+      ref={containerRef} // Keep ref if used for styles/animations
+      className="p-6 max-w-md mx-auto bg-gradient-to-br from-gray-100 to-gray-300 rounded-3xl shadow-xl relative border border-gray-300"
     >
       <style>{`button { border-radius: 10px !important; }`}</style>
+
+      {/* Step 1: Registration Form */}
       {step === "form" && (
-        <div className="space-y-4">
+        <form onSubmit={handleFormSubmit} className="space-y-4">
           <h2 className="text-2xl font-semibold text-gray-800">Register</h2>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email"
+            required
             className="w-full p-2 border border-gray-300 rounded-lg"
           />
           <input
@@ -557,153 +197,78 @@ export default function UserRegistrationForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
+            required
+            minLength={8} // Example: add basic validation
             className="w-full p-2 border border-gray-300 rounded-lg"
           />
-          <div className="flex justify-center">
+          {isSumsubLoading && (
+            <div className="text-center text-blue-600">
+              Initializing verification...
+            </div>
+          )}
+          {sumsubError && (
+            <div className="text-center text-red-600 text-sm p-2 bg-red-50 rounded-lg border border-red-200">
+              {sumsubError}
+            </div>
+          )}
+          <div className="flex justify-center pt-2">
             <button
-              onClick={handleFormSubmit}
-              className="bg-yellow-400 hover:bg-yellow-300 text-black px-6 py-2 rounded-full shadow-md"
+              type="submit"
+              disabled={isSumsubLoading}
+              className={`bg-yellow-400 hover:bg-yellow-300 text-black px-6 py-2 rounded-full shadow-md transition-opacity ${isSumsubLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Continue
+              {isSumsubLoading ? 'Loading...' : 'Continue to Verification'}
             </button>
           </div>
+        </form>
+      )}
+
+      {/* Step 2: Sumsub Verification */}
+      {step === "sumsub" && (
+        <div>
+          <h2 className="text-xl font-semibold text-center mb-4 text-gray-800">Identity Verification</h2>
+          {isSumsubLoading && (
+            <div className="text-center text-blue-600 py-10">Loading Verification Module...</div>
+          )}
+           {sumsubError && (
+            <div className="text-center text-red-600 text-sm p-3 bg-red-50 rounded-lg border border-red-200 mb-4">
+              {sumsubError}
+            </div>
+          )}
+          {/* Container for the Sumsub WebSDK */}
+          <div ref={sumsubContainerRef} id="sumsub-websdk-container" className="min-h-[500px]">
+            {/* Sumsub SDK will inject its UI here */}
+          </div>
+           <button
+              onClick={() => { setStep('form'); setSumsubError(null); /* Add any other cleanup */ }}
+              className="mt-4 w-full px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg shadow"
+            >
+              Cancel Verification
+            </button>
         </div>
       )}
 
-      {step === "camera" && (
-        <div className="text-center space-y-4">
-          <h2 className="text-lg font-medium text-gray-700">
-            Capture ID Front
-          </h2>
-          <div className="w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover rounded"
-            />
-            <canvas
-              ref={canvasRef}
-              width={320}
-              height={240}
-              className="hidden"
-            />
-          </div>
-          <div className="flex flex-col md:flex-row justify-center gap-3 mt-4">
-            <button
-              onClick={capturePhoto}
-              className="bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-full shadow-md"
-            >
-              Capture Front
-            </button>
-
-            <input
-              type="file"
-              accept="image/*"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current.click()}
-              disabled={isUploading}
-              className="bg-blue-500 hover:bg-blue-400 text-white px-4 py-2 rounded-full shadow-md"
-            >
-              {isUploading ? "Processing..." : "Upload Image"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === "completed" && (
-        <div className="text-center space-y-6">
-          <h2 className="text-2xl font-semibold text-gray-800">
-            Registration Confirmation
-          </h2>
-          <h3 className="text-lg text-gray-700">Email: {email}</h3>
-          <div className="relative w-full h-60 bg-gray-300 flex items-center justify-center rounded overflow-hidden">
-            {photoFront ? (
-              <img
-                src={photoFront}
-                alt="Front of ID"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-gray-600 text-lg">Photo Missing</span>
-            )}
-          </div>
-          <div className="text-sm text-gray-500 font-medium pt-1">
-            Front of ID
-          </div>
-          <div className="mt-4 text-xs text-gray-600">
-            {idDetails ? (
-              <div>
-                <p>
-                  <strong>Name:</strong> {idDetails.name} {idDetails.fatherName}
-                </p>
-                <p>
-                  <strong>ID No:</strong> {idDetails.idNumber}
-                </p>
-                <p>
-                  <strong>Expiry:</strong> {idDetails.expiry}
-                </p>
-              </div>
-            ) : isExtracting ? (
-              <div className="flex flex-col items-center justify-center">
-                <p>Scanning ID details...</p>
-                <div className="mt-2 w-8 h-8 border-2 border-gray-300 border-t-yellow-400 rounded-full animate-spin"></div>
-              </div>
-            ) : (
-              <button
-                onClick={() =>
-                  extractIdDetails(photoFront).then(setIdDetails)
-                }
-                className="px-4 py-1 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-full text-xs"
-              >
-                Scan ID Details
-              </button>
-            )}
-          </div>
-          <div className="flex justify-center gap-4 pt-2">
-            <button
-              onClick={() => retakePhoto()}
-              className="px-5 py-2 bg-gray-800 text-white hover:bg-gray-700 transition shadow-md"
-            >
-              Retake Photo
-            </button>
-            <button
-              onClick={handleSubmit}
-              className="px-6 py-2 bg-yellow-400 hover:bg-yellow-300 text-black transition shadow-md"
-            >
-              Submit
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === "verification" && renderVerificationStepContent()}
-
+      {/* Step 3: Success */}
       {step === "success" && (
-        <div className="text-center space-y-6">
+        <div className="text-center space-y-6 py-8">
           <div className="text-6xl mb-4">✅</div>
           <h2 className="text-2xl font-semibold text-gray-800">
-            Registration Complete!
+            Verification Complete!
           </h2>
           <p className="text-gray-600">
-            Your identity has been verified successfully.
+            Your identity has been verified successfully. You can now proceed.
           </p>
           <button
-            onClick={() => window.location.href = "/dashboard"}
+            onClick={() => window.location.href = "/dashboard"} // Redirect to dashboard or next step
             className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-md"
           >
             Go to Dashboard
           </button>
         </div>
       )}
-      
-      <canvas ref={canvasRef} className="hidden" />
-      <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileUpload} className="hidden" />
+
+      {/* Removed camera, completed, verification steps */}
+      {/* Remove canvas and hidden inputs */}
     </div>
   );
 }
