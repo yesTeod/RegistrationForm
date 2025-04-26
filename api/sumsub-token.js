@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 // Sumsub API base URL
 const SUMSUB_API_URL = 'https://api.sumsub.com';
