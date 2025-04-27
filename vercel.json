@@ -6,6 +6,9 @@
     "api/extract-id.js": {
       "memory": 1024,
       "maxDuration": 60
-    }
+    },
+    "api/get-verification-status.js": {
+          "maxDuration": 60
+          }
   }
 } 
