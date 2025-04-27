@@ -167,16 +167,26 @@ export default function UserRegistrationForm() {
   return (
     <div
       ref={containerRef}
-      className="p-6 max-w-md mx-auto bg-gradient-to-br from-gray-100 to-gray-300 rounded-3xl shadow-xl transition-transform duration-300 relative border border-gray-300 will-change-transform"
+      className={`p-6 max-w-md mx-auto bg-gradient-to-br from-gray-100 to-gray-300 rounded-3xl shadow-xl transition-transform duration-300 relative border border-gray-300 will-change-transform ${step === 'form' ? 'form-step-height' : ''}`}
       style={{ minHeight: '500px' }}
     >
       <style>{`
         button { border-radius: 10px !important; }
         #veriff-root iframe { border: none; width: 100%; height: 450px; }
+        
+        .form-step-height {
+          min-height: auto !important;
+          height: auto;
+          max-height: 400px;
+        }
+        .form-step-height > div {
+             padding-top: 1rem;
+             padding-bottom: 1rem;
+        }
       `}</style>
       {step === "form" && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-800">Register</h2>
+        <div className="space-y-3">
+          <h2 className="text-xl font-semibold text-gray-800">Register</h2>
           <input
             type="email"
             value={email}
