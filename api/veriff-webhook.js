@@ -110,12 +110,36 @@ export default async function handler(req, res) {
         const collection = db.collection('user_verifications'); // Or your preferred collection name
 
         const filter = { email: vendorData }; // Use email (vendorData) as the unique identifier
+        
+        // Prepare base update document
+        const updateFields = { 
+            status: status,
+            verificationId: verificationId,
+            lastUpdated: new Date(),
+        };
+
+        // Add extracted data if verification is approved (or potentially other relevant statuses)
+        if (status === 'approved' && payload.verification) {
+            const person = payload.verification.person;
+            const document = payload.verification.document;
+
+            if (person) {
+                updateFields.firstName = person.firstName || null;
+                updateFields.lastName = person.lastName || null;
+                // Add other person fields as needed (e.g., dateOfBirth)
+                updateFields.dateOfBirth = person.dateOfBirth || null;
+            }
+            if (document) {
+                updateFields.documentType = document.type || null;
+                updateFields.documentNumber = document.number || null;
+                updateFields.documentExpiry = document.validUntil || null; // validUntil often means expiry
+                updateFields.documentCountry = document.country || null;
+                // Add other document fields as needed
+            }
+        }
+        
         const updateDoc = {
-          $set: { 
-              status: status,
-              verificationId: verificationId, // Store the verification ID
-              lastUpdated: new Date(), // Track update time
-          },
+          $set: updateFields,
         };
         const options = { upsert: true }; // Create document if it doesn't exist
 
