@@ -1,0 +1,142 @@
+import crypto from 'crypto';
+import { MongoClient } from 'mongodb';
+
+// MongoDB connection details from environment variables
+const uri = process.env.MONGODB_URI;
+const dbName = process.env.MONGODB_DB_NAME;
+const client = new MongoClient(uri);
+
+// Cache the database connection promise
+let cachedDb = null;
+
+// Function to connect to the database (reuses connection)
+async function connectToDatabase() {
+  if (cachedDb) {
+    return cachedDb;
+  }
+  try {
+    await client.connect();
+    const db = client.db(dbName);
+    cachedDb = db; // Cache the connection
+    console.log("Connected to MongoDB");
+    return db;
+  } catch (error) {
+      console.error("Failed to connect to MongoDB:", error);
+      // Close client if connection failed during initialization
+      await client.close(); 
+      throw error; // Re-throw error to be caught by handler
+  }
+}
+
+// Helper function to read the raw body from the request
+async function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString(); // convert Buffer to string
+    });
+    req.on('end', () => {
+      resolve(Buffer.from(body)); // Return as buffer for crypto
+    });
+    req.on('error', (err) => {
+        reject(err);
+    });
+  });
+}
+
+export default async function handler(req, res) {
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
+
+  console.log("Veriff Webhook function invoked.");
+
+  // Retrieve secret key from environment variables (handled by Vercel)
+  const VERIFF_SECRET_KEY = process.env.VERIFF_SECRET_KEY;
+
+  if (!VERIFF_SECRET_KEY) {
+    console.error("FATAL ERROR: VERIFF_SECRET_KEY is not set in environment variables.");
+    // Don't expose internal errors, just return a generic server error
+    return res.status(500).send('Internal Server Error: Configuration missing');
+  }
+
+  try {
+    // 1. Verify Signature
+    const receivedSignature = req.headers['x-hmac-signature'];
+    const rawBodyBuffer = await readRawBody(req);
+
+    if (!receivedSignature || rawBodyBuffer.length === 0) {
+      console.warn("Webhook missing signature or body.");
+      return res.status(400).send('Bad Request: Missing signature or body');
+    }
+
+    const computedSignature = crypto
+      .createHmac('sha256', VERIFF_SECRET_KEY)
+      .update(rawBodyBuffer)
+      .digest('hex');
+
+    if (computedSignature !== receivedSignature) {
+      console.warn("Webhook signature mismatch.");
+      return res.status(403).send('Forbidden: Invalid signature');
+    }
+
+    // 2. Process Payload (Body is already read as buffer, parse it as JSON)
+    let payload;
+    try {
+        payload = JSON.parse(rawBodyBuffer.toString('utf-8'));
+    } catch (parseError) {
+        console.error("Failed to parse webhook JSON payload:", parseError);
+        return res.status(400).send('Bad Request: Invalid JSON payload');
+    }
+    
+    console.log("Webhook Payload (Verified):", JSON.stringify(payload, null, 2));
+
+    // 3. Extract relevant information 
+    const verificationId = payload.verification?.id;
+    const status = payload.verification?.status;
+    const vendorData = payload.verification?.vendorData; // User's email in our case
+
+    if (!vendorData) {
+      console.warn("Webhook payload missing vendorData.");
+      // Acknowledge receipt even if vendorData is missing, but log it.
+      return res.status(200).send('OK - Acknowledged, but missing vendorData');
+    }
+
+    // --- MongoDB Update Logic --- 
+    try {
+        const db = await connectToDatabase();
+        const collection = db.collection('user_verifications'); // Or your preferred collection name
+
+        const filter = { email: vendorData }; // Use email (vendorData) as the unique identifier
+        const updateDoc = {
+          $set: { 
+              status: status,
+              verificationId: verificationId, // Store the verification ID
+              lastUpdated: new Date(), // Track update time
+          },
+        };
+        const options = { upsert: true }; // Create document if it doesn't exist
+
+        const result = await collection.updateOne(filter, updateDoc, options);
+        console.log(
+          `MongoDB update result for ${vendorData}: ${result.modifiedCount} modified, ${result.upsertedCount} upserted`
+        );
+
+    } catch (dbError) {
+        console.error(`Database error processing webhook for ${vendorData}:`, dbError);
+        // Decide if this should be a 500 error. If DB fails, Veriff might retry.
+        // Returning 500 might be appropriate to signal a processing failure.
+        return res.status(500).send('Internal Server Error: Database operation failed');
+    }
+    // -----------------------------
+
+    // 4. Acknowledge Receipt
+    res.status(200).send('OK');
+
+  } catch (error) {
+    console.error("Error processing Veriff webhook:", error);
+    res.status(500).send('Internal Server Error');
+  }
+} 
