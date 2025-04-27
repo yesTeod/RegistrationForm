@@ -13,10 +13,9 @@
       "body-parser": "^1.20.2",
       "tesseract.js": "^2.1.5",
       "tesseract.js-core": "^2.1.1",
-      "openai": "^4.28.0",
       "serverless-http": "^2.7.0",
       "@aws-sdk/client-rekognition": "^3.330.0",
-      "@sumsub/websdk": "^2.3.13"
+      "mongodb": "^6.16.0"
     },
     "devDependencies": {
       "@types/react": "19.0.0",
