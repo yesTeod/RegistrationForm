@@ -92,6 +92,7 @@ export default async function handler(req, res) {
     }
     
     console.log("Webhook Payload (Verified):", JSON.stringify(payload, null, 2));
+    console.log("Raw Payload for Debug:", JSON.stringify(payload, null, 2));
 
     // 3. Extract relevant information 
     const verificationId = payload.verification?.id;
