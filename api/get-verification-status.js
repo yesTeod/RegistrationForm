@@ -52,8 +52,24 @@ export default async function handler(req, res) {
     const db = await connectToDatabase();
     const collection = db.collection('user_verifications'); // Use the same collection name as the webhook
 
+    // Check if the collection exists and list available collections for debugging
+    const collections = await db.listCollections().toArray();
+    const collectionNames = collections.map(c => c.name);
+    console.log(`Available collections in database: ${collectionNames.join(', ')}`);
+    
+    if (!collectionNames.includes('user_verifications')) {
+      console.warn(`Warning: 'user_verifications' collection does not exist in the database!`);
+      return res.status(404).json({ 
+        status: 'not_found',
+        message: 'Collection not found - verification system may not be properly initialized'
+      });
+    }
+
     const filter = { email: email }; // Find user by email
+    console.log(`Searching for document with email: ${email}`);
+    
     const userVerification = await collection.findOne(filter);
+    console.log(`Database query result:`, userVerification ? JSON.stringify(userVerification) : 'null');
 
     const userStatus = userVerification ? userVerification.status : null;
     // -------------------------
@@ -61,18 +77,28 @@ export default async function handler(req, res) {
     if (userStatus) {
       // Found the status in the database
       console.log(`Status found for ${email}: ${userStatus}`);
-      return res.status(200).json({ status: userStatus });
+      return res.status(200).json({ 
+        status: userStatus,
+        verificationId: userVerification.verificationId || null,
+        lastUpdated: userVerification.lastUpdated || null
+      });
     } else {
       // Status not found for this email (webhook might not have arrived yet, or user doesn't exist)
       console.log(`Status not found for ${email} (in DB)`);
       // Return 404 so the frontend knows it's not found yet and can continue polling
-      return res.status(404).json({ status: 'not_found' }); 
+      return res.status(404).json({ 
+        status: 'not_found',
+        message: 'No verification record found for this email. Please complete the verification process first.'
+      }); 
     }
 
   } catch (error) {
     console.error(`Error fetching verification status for ${email}:`, error);
     // Return a generic server error
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ 
+      error: 'Internal Server Error',
+      message: error.message 
+    });
   }
 }
 
