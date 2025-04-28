@@ -15,7 +15,8 @@
       "tesseract.js-core": "^2.1.1",
       "serverless-http": "^2.7.0",
       "@aws-sdk/client-rekognition": "^3.330.0",
-      "mongodb": "^6.16.0"
+      "mongodb": "^6.16.0",
+      "bcrypt": "^5.1.1"
     },
     "devDependencies": {
       "@types/react": "19.0.0",
