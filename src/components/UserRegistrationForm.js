@@ -90,7 +90,7 @@ export default function UserRegistrationForm() {
 
       try {
         const veriff = window.Veriff({
-          apiKey: process.env.VERIFF_API_KEY,
+          apiKey: process.env.REACT_APP_VERIFF_API_KEY,
           parentId: 'veriff-root',
           host: 'https://stationapi.veriff.com',
           onSession: function(err, response) {
