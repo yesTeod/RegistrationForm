@@ -8,6 +8,7 @@ export default function UserRegistrationForm() {
   const [veriffError, setVeriffError] = useState(null);
 
   const containerRef = useRef(null);
+  const pollingIntervalRef = useRef(null); // Ref to store interval ID
 
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -122,6 +123,42 @@ export default function UserRegistrationForm() {
             vendorData: "Email"
           }
         });
+
+        // --- Add event listener for Veriff iframe messages ---
+        const handleVeriffMessage = (event) => {
+          // Ensure message is from Veriff
+          if (event.origin !== 'https://stationapi.veriff.com') { 
+            return;
+          }
+
+          console.log("Received message from Veriff:", event.data);
+
+          if (event.data === 'CANCELED') {
+            console.log("Verification cancelled by user (detected via postMessage).");
+            // Clear polling if it's running
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+              console.log("Polling stopped due to cancellation.");
+            }
+            setVeriffError("Verification process was cancelled.");
+            handleFlip("form", "left"); // Go back to form
+          } 
+          // Optionally handle 'FINISHED' if needed, though polling handles success/failure
+          // else if (event.data === 'FINISHED') {
+          //   console.log("Verification finished (postMessage). Polling will determine outcome.");
+          // }
+        };
+
+        window.addEventListener('message', handleVeriffMessage);
+
+        // Cleanup function for the effect
+        return () => {
+          console.log("Cleaning up Veriff message listener.");
+          window.removeEventListener('message', handleVeriffMessage);
+        };
+        // --- End event listener logic ---
+
       } catch (error) {
           console.error("Error mounting Veriff SDK:", error);
           setVeriffError("An unexpected error occurred while setting up verification.");
@@ -131,10 +168,15 @@ export default function UserRegistrationForm() {
 
   // Effect to poll the NEW /api/get-verification-status endpoint
   useEffect(() => {
-    let intervalId;
+    // Clear previous interval if it exists (e.g., if email changes)
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
     if (step === 'veriff-pending' && email) {
       console.log("Starting DB status polling for:", email);
-      intervalId = setInterval(async () => {
+      pollingIntervalRef.current = setInterval(async () => { // Store interval ID in ref
         try {
           // Poll the new serverless function endpoint, passing email as a query param
           const response = await fetch(`/api/get-verification-status?email=${encodeURIComponent(email)}`);
@@ -156,11 +198,13 @@ export default function UserRegistrationForm() {
           // Check the status received from the database via the API
           if (data.status === 'approved') {
             console.log("Verification approved (from DB poll)!");
-            clearInterval(intervalId); // Stop polling
+            clearInterval(pollingIntervalRef.current); // Stop polling using ref
+            pollingIntervalRef.current = null;
             handleFlip("success", "right"); // Move to success step
           } else if (data.status === 'declined' || data.status === 'expired' || data.status === 'abandoned') {
             console.log(`Verification status (from DB poll): ${data.status}`);
-            clearInterval(intervalId); // Stop polling
+            clearInterval(pollingIntervalRef.current); // Stop polling using ref
+            pollingIntervalRef.current = null;
             setVeriffError(`Verification ${data.status}. Please try again or contact support.`);
             handleFlip("form", "left"); // Go back to form with error
           } else if (data.status === 'resubmitted') {
@@ -181,9 +225,10 @@ export default function UserRegistrationForm() {
 
     // Cleanup function to clear interval when step changes, email changes, or component unmounts
     return () => {
-      if (intervalId) {
+      if (pollingIntervalRef.current) {
         console.log("Stopping DB status polling for:", email);
-        clearInterval(intervalId);
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
       }
     };
   }, [step, email]); // Depend on step and email
