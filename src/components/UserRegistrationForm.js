@@ -350,21 +350,23 @@ export default function UserRegistrationForm() {
               <h3 className="font-semibold text-gray-700">Account Details</h3>
               <p><span className="font-medium">Email:</span> {userDetails.email}</p>
               <p><span className="font-medium">Status:</span> <span className={`font-semibold ${userDetails.status === 'approved' ? 'text-green-600' : 'text-orange-600'}`}>{userDetails.status}</span></p>
+              {userDetails.createdAt && <p><span className="font-medium">Registered:</span> {new Date(userDetails.createdAt).toLocaleDateString()}</p>}
+              {userDetails.lastUpdated && <p><span className="font-medium">Last Update:</span> {new Date(userDetails.lastUpdated).toLocaleString()}</p>}
           </div>
-          {(userDetails.firstName || userDetails.lastName) && (
+          {(userDetails.firstName || userDetails.lastName || userDetails.dateOfBirth) && (
               <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="font-semibold text-gray-700">Personal Information</h3>
                   {userDetails.firstName && <p><span className="font-medium">First Name:</span> {userDetails.firstName}</p>}
                   {userDetails.lastName && <p><span className="font-medium">Last Name:</span> {userDetails.lastName}</p>}
-                  {userDetails.dateOfBirth && <p><span className="font-medium">Date of Birth:</span> {userDetails.dateOfBirth}</p>}
+                  {userDetails.dateOfBirth && <p><span className="font-medium">Date of Birth:</span> {new Date(userDetails.dateOfBirth).toLocaleDateString()}</p>}
               </div>
           )}
-          {(userDetails.documentType || userDetails.documentNumber) && (
+          {(userDetails.documentType || userDetails.documentNumber || userDetails.documentExpiry || userDetails.documentCountry) && (
               <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="font-semibold text-gray-700">Verified Document</h3>
                   {userDetails.documentType && <p><span className="font-medium">Type:</span> {userDetails.documentType}</p>}
                   {userDetails.documentNumber && <p><span className="font-medium">Number:</span> {userDetails.documentNumber}</p>}
-                  {userDetails.documentExpiry && <p><span className="font-medium">Expiry:</span> {userDetails.documentExpiry}</p>}
+                  {userDetails.documentExpiry && <p><span className="font-medium">Expiry:</span> {new Date(userDetails.documentExpiry).toLocaleDateString()}</p>}
                   {userDetails.documentCountry && <p><span className="font-medium">Country:</span> {userDetails.documentCountry}</p>}
               </div>
           )}
