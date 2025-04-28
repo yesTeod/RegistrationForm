@@ -8,8 +8,8 @@ export default async function handler(req, res) {
 
   try {
     await client.connect();
-    const db = client.db("users");
-    const collection = db.collection("registrations");
+    const db = client.db("Cluster0");
+    const collection = db.collection("user_verifications");
 
     const data = req.body;
     await collection.insertOne(data);
