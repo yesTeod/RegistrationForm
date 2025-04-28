@@ -1,9 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
 
-// NOTE: Ensure Veriff SDK scripts are included in your main HTML file:
-// <script src='https://cdn.veriff.me/sdk/js/1.5/veriff.min.js'></script>
-// <script src='https://cdn.veriff.me/incontext/js/v1/veriff.js'></script>
-
 export default function UserRegistrationForm() {
   const [step, setStep] = useState("form");
   const [email, setEmail] = useState("");
@@ -72,7 +68,7 @@ export default function UserRegistrationForm() {
 
       try {
         const veriff = window.Veriff({
-          apiKey: '28a61e07-0015-49f9-b6f7-d0a64d159ca0',
+          apiKey: process.env.VERIFF_API_KEY,
           parentId: 'veriff-root',
           host: 'https://stationapi.veriff.com',
           onSession: function(err, response) {
