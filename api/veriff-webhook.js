@@ -97,18 +97,44 @@ export default async function handler(req, res) {
     // 3. Extract relevant information 
     const verificationId = payload.verification?.id;
     const status = payload.verification?.status;
-    const vendorData = payload.verification?.vendorData; // User's email in our case
+    let vendorData = payload.verification?.vendorData; // User's email in our case
+
+    if (!verificationId) {
+      console.warn("Webhook payload missing verification ID");
+    }
+    
+    if (!status) {
+      console.warn("Webhook payload missing status");
+    }
 
     if (!vendorData) {
       console.warn("Webhook payload missing vendorData.");
-      // Acknowledge receipt even if vendorData is missing, but log it.
-      return res.status(200).send('OK - Acknowledged, but missing vendorData');
+      // Try to see if the email is available in another field
+      const possibleEmail = payload.verification?.person?.email || payload.verification?.additionalData?.email;
+      if (possibleEmail) {
+        console.log("Found potential email in alternative location:", possibleEmail);
+        // Continue with this email instead
+        vendorData = possibleEmail;
+      } else {
+        // Acknowledge receipt even if vendorData is missing, but log it.
+        return res.status(200).send('OK - Acknowledged, but missing vendorData');
+      }
     }
+
+    console.log(`Processing webhook for verification ID: ${verificationId}, status: ${status}, email: ${vendorData}`);
 
     // --- MongoDB Update Logic --- 
     try {
         const db = await connectToDatabase();
         const collection = db.collection('user_verifications'); // Or your preferred collection name
+
+        // Debug: Check if user already exists in database
+        const existingUser = await collection.findOne({ email: vendorData });
+        if (existingUser) {
+          console.log(`User already exists in database with status: ${existingUser.status}`);
+        } else {
+          console.log(`No existing user found for email: ${vendorData}`);
+        }
 
         const filter = { email: vendorData }; // Use email (vendorData) as the unique identifier
         
@@ -144,10 +170,21 @@ export default async function handler(req, res) {
         };
         const options = { upsert: true }; // Create document if it doesn't exist
 
+        console.log(`Updating database for email: ${vendorData} with status: ${status}`);
+        console.log(`Update document:`, JSON.stringify(updateDoc, null, 2));
+
         const result = await collection.updateOne(filter, updateDoc, options);
         console.log(
           `MongoDB update result for ${vendorData}: ${result.modifiedCount} modified, ${result.upsertedCount} upserted`
         );
+
+        // Double-check update was successful by reading from database
+        const updatedUser = await collection.findOne({ email: vendorData });
+        if (updatedUser) {
+          console.log(`Confirmation - User in database after update: ${JSON.stringify(updatedUser, null, 2)}`);
+        } else {
+          console.warn(`WARNING: User not found in database after update!`);
+        }
 
     } catch (dbError) {
         console.error(`Database error processing webhook for ${vendorData}:`, dbError);
