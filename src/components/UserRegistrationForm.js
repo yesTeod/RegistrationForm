@@ -126,6 +126,9 @@ export default function UserRegistrationForm() {
 
         // --- Add event listener for Veriff iframe messages ---
         const handleVeriffMessage = (event) => {
+          // Log ALL messages received to see what's coming through
+          console.log("Raw message received:", event);
+
           // Ensure message is from Veriff
           if (event.origin !== 'https://stationapi.veriff.com') { 
             return;
