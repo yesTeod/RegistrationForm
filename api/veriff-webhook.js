@@ -119,22 +119,22 @@ export default async function handler(req, res) {
     console.log("Webhook Payload (Verified):", JSON.stringify(payload, null, 2));
     console.log("Raw Payload for Debug:", JSON.stringify(payload, null, 2));
 
-    // 3. Extract relevant information 
-    const verificationId = payload.verification?.id;
-    const status = payload.verification?.status;
-    let vendorData = payload.verification?.vendorData; // User's email in our case
+    // 3. Extract relevant information (UPDATED PATHS)
+    const verificationId = payload.sessionId; // Use sessionId as verificationId
+    const status = payload.data?.verification?.decision; // Get decision from nested structure
+    let vendorData = payload.vendorData; // Get vendorData from top level
 
     if (!verificationId) {
-      console.warn("Webhook payload missing verification ID");
+      console.warn("Webhook payload missing sessionId (used as verification ID)");
     }
     
     if (!status) {
-      console.warn("Webhook payload missing status");
+      console.warn("Webhook payload missing status (data.verification.decision)");
     }
 
     if (!vendorData) {
-      console.warn("Webhook payload missing vendorData.");
-      // Try to see if the email is available in another field
+      console.warn("Webhook payload missing vendorData (top-level).");
+      // Try to see if the email is available in another field (LESS LIKELY NOW, BUT KEEPING AS FALLBACK)
       const possibleEmail = payload.verification?.person?.email || payload.verification?.additionalData?.email;
       if (possibleEmail) {
         console.log("Found potential email in alternative location:", possibleEmail);
@@ -142,7 +142,9 @@ export default async function handler(req, res) {
         vendorData = possibleEmail;
       } else {
         // Acknowledge receipt even if vendorData is missing, but log it.
-        return res.status(200).send('OK - Acknowledged, but missing vendorData');
+        // It's critical for linking to the user, so we should probably error if it's truly missing.
+        console.error("FATAL: Webhook payload missing vendorData (email) and fallback failed.");
+        return res.status(400).send('Bad Request: Missing vendorData (email)'); // Changed to 400 Error
       }
     }
 
@@ -165,15 +167,17 @@ export default async function handler(req, res) {
         
         // Prepare base update document
         const updateFields = { 
-            status: status,
-            verificationId: verificationId,
+            status: status, // Use the extracted status
+            verificationId: verificationId, // Use the extracted verificationId
             lastUpdated: new Date(),
         };
 
         // Add extracted data if verification is approved (or potentially other relevant statuses)
-        if (status === 'approved' && payload.verification) {
-            const person = payload.verification.person;
-            const document = payload.verification.document;
+        // Check the extracted status
+        if (status === 'approved' && payload.data?.verification) {
+            const verificationData = payload.data.verification; // Use the correct path
+            const person = verificationData.person;
+            const document = verificationData.document;
 
             if (person) {
                 updateFields.firstName = person.firstName || null;
