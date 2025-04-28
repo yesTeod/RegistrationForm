@@ -52,6 +52,9 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  // Add a log right at the start to confirm invocation
+  console.log("--- VERIFF WEBHOOK HANDLER INVOKED ---"); 
+
   // Only allow POST requests
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
