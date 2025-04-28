@@ -89,6 +89,8 @@ export default function UserRegistrationForm() {
       setVeriffError(null);
 
       try {
+        console.log("Initializing Veriff with API key:", process.env.REACT_APP_VERIFF_API_KEY ? "API key exists" : "API key is missing");
+        
         const veriff = window.Veriff({
           apiKey: process.env.REACT_APP_VERIFF_API_KEY,
           parentId: 'veriff-root',
@@ -99,18 +101,22 @@ export default function UserRegistrationForm() {
               setVeriffError("Failed to start verification session. Please try again.");
               return;
             }
-            console.log("Veriff session response:", response);
+            console.log("Veriff session created successfully:", response);
+            console.log("Verification ID:", response.verification?.id);
+            console.log("Verification URL:", response.verification?.url);
             window.veriffSDK.createVeriffFrame({ url: response.verification.url });
             setStep("veriff-pending");
           }
         });
 
+        console.log("Setting Veriff parameters with email:", email);
         veriff.setParams({
           person: {
           },
           vendorData: email
         });
 
+        console.log("Mounting Veriff component");
         veriff.mount({
           formLabel: {
             vendorData: "Email"
