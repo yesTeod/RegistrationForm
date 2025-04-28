@@ -28,6 +28,28 @@ export default function UserRegistrationForm() {
   };
 
   const handleFormSubmit = () => {
+    // Validate both email and password before proceeding
+    if (!email.trim()) {
+      setVeriffError("Email is required");
+      return;
+    }
+    
+    // Simple email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setVeriffError("Please enter a valid email address");
+      return;
+    }
+    
+    if (!password.trim()) {
+      setVeriffError("Password is required");
+      return;
+    }
+    
+    // Clear any previous errors
+    setVeriffError(null);
+    
+    // Proceed with verification
     handleFlip("veriff", "right");
   };
 
