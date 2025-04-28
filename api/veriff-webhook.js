@@ -44,6 +44,13 @@ async function readRawBody(req) {
   });
 }
 
+// Disable Vercel's default body parsing for this route
+export const config = {
+    api: {
+      bodyParser: false,
+    },
+};
+
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
@@ -51,6 +58,13 @@ export default async function handler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
+  // Add detailed logging info for debugging
+  console.log("==== VERIFF WEBHOOK DETAILS ====");
+  console.log("Request headers:", JSON.stringify(req.headers));
+  console.log("Request query:", JSON.stringify(req.query));
+  console.log("Request method:", req.method);
+  console.log("==============================");
+  
   console.log("Veriff Webhook function invoked.");
 
   // Retrieve secret key from environment variables (handled by Vercel)
@@ -65,7 +79,11 @@ export default async function handler(req, res) {
   try {
     // 1. Verify Signature
     const receivedSignature = req.headers['x-hmac-signature'];
+    console.log(`Received Signature Header: ${receivedSignature}`); // Log received signature
+
     const rawBodyBuffer = await readRawBody(req);
+    // Log the raw body (e.g., as base64) for comparison if needed
+    console.log(`Raw Body Buffer (Base64): ${rawBodyBuffer.toString('base64')}`); 
 
     if (!receivedSignature || rawBodyBuffer.length === 0) {
       console.warn("Webhook missing signature or body.");
@@ -76,9 +94,13 @@ export default async function handler(req, res) {
       .createHmac('sha256', VERIFF_SECRET_KEY)
       .update(rawBodyBuffer)
       .digest('hex');
+      
+    console.log(`Computed Signature: ${computedSignature}`); // Log computed signature
 
     if (computedSignature !== receivedSignature) {
       console.warn("Webhook signature mismatch.");
+      // Log details before returning
+      console.error(`Signature Mismatch Details: Received='${receivedSignature}', Computed='${computedSignature}', Key Hint='${VERIFF_SECRET_KEY ? VERIFF_SECRET_KEY.substring(0, 4) + "..." : "MISSING"}'`);
       return res.status(403).send('Forbidden: Invalid signature');
     }
 
