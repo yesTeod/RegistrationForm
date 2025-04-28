@@ -262,6 +262,12 @@ export default function UserRegistrationForm() {
            <p className="text-gray-600">Please complete the identity verification steps presented by Veriff.</p>
            <p className="text-sm text-gray-500 mt-4">Once completed, your registration status will be updated automatically.</p>
            <div className="mt-4 w-10 h-10 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto"></div>
+           <button
+            onClick={() => handleFlip("form", "left")}
+            className="mt-6 px-5 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg shadow transition-colors"
+           >
+             Restart Registration
+           </button>
          </div>
       )}
 
