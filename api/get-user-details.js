@@ -14,7 +14,7 @@ async function connectToDatabase() {
     await client.connect();
     const db = client.db(dbName);
     cachedDb = db;
-    console.log("Connected to MongoDB for get-user-details");
+    console.log("Connected to MongoDB for get-user-detail");
     return db;
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
