@@ -14,7 +14,7 @@ async function connectToDatabase() {
     await client.connect();
     const db = client.db(dbName);
     cachedDb = db;
-    console.log("Connected to MongoDB for get-user-detail");
+    console.log("Connected to MongoDB for get-user-details");
     return db;
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
@@ -48,35 +48,20 @@ export default async function handler(req, res) {
 
     if (userDetails) {
       console.log(`User details found for ${email}`);
+      // Sanitize potentially null fields that might cause issues if not handled on frontend
+      userDetails.status = userDetails.status || 'unknown';
+      userDetails.verificationId = userDetails.verificationId || null;
+      userDetails.firstName = userDetails.firstName || null;
+      userDetails.lastName = userDetails.lastName || null;
+      userDetails.dateOfBirth = userDetails.dateOfBirth || null;
+      userDetails.documentType = userDetails.documentType || null;
+      userDetails.documentNumber = userDetails.documentNumber || null;
+      userDetails.documentExpiry = userDetails.documentExpiry || null;
+      userDetails.documentCountry = userDetails.documentCountry || null;
+      userDetails.lastUpdated = userDetails.lastUpdated || null;
+      userDetails.createdAt = userDetails.createdAt || null;
       
-      // Helper function to safely extract primitive value from potential Veriff object
-      const extractValue = (field) => {
-        if (field && typeof field === 'object' && field.hasOwnProperty('value')) {
-          return field.value;
-        }
-        return field; // Return the field itself if it's not an object with 'value'
-      };
-
-      // Sanitize fields: Ensure null defaults and extract primitive values
-      const sanitizedDetails = {
-        _id: userDetails._id,
-        email: userDetails.email,
-        status: userDetails.status || 'unknown',
-        verificationId: userDetails.verificationId || null,
-        firstName: extractValue(userDetails.firstName) || null,
-        lastName: extractValue(userDetails.lastName) || null,
-        dateOfBirth: extractValue(userDetails.dateOfBirth) || null,
-        documentType: extractValue(userDetails.documentType) || null,
-        documentNumber: extractValue(userDetails.documentNumber) || null,
-        documentExpiry: extractValue(userDetails.documentExpiry) || null, // Veriff often uses 'validUntil'
-        documentCountry: extractValue(userDetails.documentCountry) || null,
-        lastUpdated: userDetails.lastUpdated || null,
-        createdAt: userDetails.createdAt || null,
-      };
-
-      console.log("Sanitized user details:", sanitizedDetails);
-      
-      return res.status(200).json(sanitizedDetails);
+      return res.status(200).json(userDetails);
     } else {
       console.log(`User details not found for ${email}`);
       return res.status(404).json({ error: 'User not found' });
